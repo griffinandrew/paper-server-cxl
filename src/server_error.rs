@@ -11,6 +11,7 @@ pub enum ErrorKind {
 	InvalidResponse,
 
 	InvalidStream,
+	EmptyBuf,
 
 	ConnectionLost,
 }

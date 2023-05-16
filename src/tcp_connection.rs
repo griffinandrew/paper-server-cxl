@@ -18,40 +18,38 @@ impl TcpConnection {
 	}
 
 	pub async fn get_command(&mut self) -> Result<Command, ServerError> {
-		loop {
-			let mut buf = [0; 1];
+		if let Err(_) = self.stream.readable().await {
+			return Err(ServerError::new(
+				ErrorKind::InvalidStream,
+				"An error occured while communicating with the client."
+			));
+		}
 
-			if let Err(_) = self.stream.readable().await {
+		Command::from_stream(&self.stream, &self.ip())
+
+		/*match self.stream.try_read(&mut buf) {
+			Ok(0) => {
 				return Err(ServerError::new(
-					ErrorKind::InvalidStream,
-					"An error occured while communicating with the client."
+					ErrorKind::ConnectionLost,
+					&format!("\x1B[31mDisconnected\x1B[0m:\t<{}>", self.ip())
+				));
+			},
+
+			Ok(_) => {
+				return Command::deserialize(&buf);
+			},
+
+			Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
+				continue;
+			},
+
+			Err(_) => {
+				return Err(ServerError::new(
+					ErrorKind::InvalidCommand,
+					"Invalid command."
 				));
 			}
-
-			match self.stream.try_read(&mut buf) {
-				Ok(0) => {
-					return Err(ServerError::new(
-						ErrorKind::ConnectionLost,
-						&format!("\x1B[31mDisconnected\x1B[0m:\t<{}>", self.ip())
-					));
-				},
-
-				Ok(_) => {
-					return Command::deserialize(&buf);
-				},
-
-				Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
-					continue;
-				},
-
-				Err(_) => {
-					return Err(ServerError::new(
-						ErrorKind::InvalidCommand,
-						"Invalid command."
-					));
-				}
-			}
-		}
+		}*/
 	}
 
 	pub async fn send_response(&mut self, buf: &[u8]) -> Result<(), ServerError> {

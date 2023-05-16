@@ -6,6 +6,7 @@ mod tcp_connection;
 
 use clap::Parser;
 use paper_core::error::PaperError;
+use paper_cache::PaperCache;
 use crate::tcp_server::TcpServer;
 use crate::logo::ASCII_LOGO;
 
@@ -22,8 +23,9 @@ struct Args {
 #[tokio::main]
 async fn main() {
 	let args = Args::parse();
+	let cache = PaperCache::<u64, String>::new(100 * 1024 * 1024, None).unwrap();
 
-	let mut server = match TcpServer::new(&args.host, &args.port).await {
+	let mut server = match TcpServer::new(&args.host, &args.port, cache).await {
 		Ok(server) => {
 			println!("{}", ASCII_LOGO);
 			println!("Listening for connections...");
