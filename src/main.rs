@@ -1,14 +1,31 @@
-mod error;
+mod logo;
+mod server_error;
 mod command;
 mod tcp_server;
+mod tcp_connection;
 
-use std::io;
+use clap::Parser;
+use paper_core::error::PaperError;
 use crate::tcp_server::TcpServer;
+use crate::logo::ASCII_LOGO;
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+	#[arg(short, long, default_value = "127.0.0.1")]
+	host: String,
+
+	#[arg(short, long, default_value_t = 3145)]
+	port: u32,
+}
 
 #[tokio::main]
 async fn main() {
-	let mut server = match TcpServer::new("127.0.0.1", &3145).await {
+	let args = Args::parse();
+
+	let mut server = match TcpServer::new(&args.host, &args.port).await {
 		Ok(server) => {
+			println!("{}", ASCII_LOGO);
 			println!("Listening for connections...");
 
 			server
@@ -21,7 +38,7 @@ async fn main() {
 	};
 
 	loop {
-		if let Err(err) = server.get_command().await {
+		if let Err(err) = server.listen().await {
 			println!("\x1B[31mErr\x1B[0m: {}", err.message());
 			continue;
 		}

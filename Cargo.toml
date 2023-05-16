@@ -1,5 +1,5 @@
 [package]
-name = "paper-server"
+name = "paper_server"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.28.1", features = ["full"] }
+clap = { version = "4.2.7", features = ["derive"] }
+paper_core = { git = "ssh://git@github.com/Paper-Book/paper-core.git", version = "0.1.0" }

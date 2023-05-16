@@ -1,4 +1,4 @@
-use crate::error::{ServerError, ErrorKind};
+use crate::server_error::{ServerError, ErrorKind};
 
 pub enum Command {
 	Ping,
@@ -14,7 +14,7 @@ pub enum Command {
 impl Command {
 	pub fn deserialize(buf: &[u8]) -> Result<Self, ServerError> {
 		match buf[0] {
-			0 => Command::deserialize_ping(buf),
+			0 => Ok(Command::Ping),
 
 			1 => Ok(Command::Get),
 			2 => Ok(Command::Set),
@@ -28,9 +28,5 @@ impl Command {
 				"Invalid command."
 			))
 		}
-	}
-
-	fn deserialize_ping(buf: &[u8]) -> Result<Self, ServerError> {
-		Ok(Command::Ping)
 	}
 }

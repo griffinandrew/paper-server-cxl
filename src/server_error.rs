@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+pub use paper_core::error::PaperError;
 
 #[derive(PartialEq, Debug)]
 pub enum ErrorKind {
@@ -7,8 +8,11 @@ pub enum ErrorKind {
 	InvalidConnection,
 
 	InvalidCommand,
+	InvalidResponse,
 
 	InvalidStream,
+
+	ConnectionLost,
 }
 
 #[derive(Debug)]
@@ -28,8 +32,10 @@ impl ServerError {
 	pub fn kind(&self) -> &ErrorKind {
 		&self.kind
 	}
+}
 
-	pub fn message(&self) -> &String {
+impl PaperError for ServerError {
+	fn message(&self) -> &str {
 		&self.message
 	}
 }
