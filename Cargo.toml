@@ -10,3 +10,5 @@ tokio = { version = "1.28.1", features = ["full"] }
 clap = { version = "4.2.7", features = ["derive"] }
 paper_core = { git = "ssh://git@github.com/Paper-Book/paper-core.git", version = "0.1.0" }
 paper_cache = { git = "ssh://git@github.com/Paper-Book/paper-cache.git", version = "0.1.0" }
+byteorder = "1.4.3"
+fasthash = "0.4.0"

@@ -4,6 +4,8 @@ mod command;
 mod tcp_server;
 mod tcp_connection;
 
+use std::sync::{Arc};
+use tokio::sync::Mutex;
 use clap::Parser;
 use paper_core::error::PaperError;
 use paper_cache::PaperCache;
@@ -23,7 +25,9 @@ struct Args {
 #[tokio::main]
 async fn main() {
 	let args = Args::parse();
-	let cache = PaperCache::<u64, String>::new(100 * 1024 * 1024, None).unwrap();
+	let cache = Arc::new(Mutex::new(
+		PaperCache::<u32, String>::new(100 * 1024 * 1024, None).unwrap()
+	));
 
 	let mut server = match TcpServer::new(&args.host, &args.port, cache).await {
 		Ok(server) => {

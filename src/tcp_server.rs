@@ -1,22 +1,24 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::net::TcpListener;
-use tokio::task;
 use paper_core::sheet::Sheet;
 use paper_cache::PaperCache;
 use crate::server_error::{PaperError, ServerError, ErrorKind};
 use crate::command::Command;
 use crate::tcp_connection::TcpConnection;
 
+type Cache = PaperCache<u32, String>;
+
 pub struct TcpServer {
 	listener: TcpListener,
-	cache: Arc<Mutex<PaperCache<'static, u64, String>>>,
+	cache: Arc<Mutex<Cache>>,
 }
 
 impl TcpServer {
 	pub async fn new(
 		host: &str,
 		port: &u32,
-		cache: PaperCache<'static, u64, String>
+		cache: Arc<Mutex<Cache>>,
 	) -> Result<Self, ServerError> {
 		let addr = format!("{}:{}", host, port);
 
@@ -33,7 +35,7 @@ impl TcpServer {
 
 		let server = TcpServer {
 			listener,
-			cache: Arc::new(Mutex::new(cache)),
+			cache,
 		};
 
 		Ok(server)
@@ -57,19 +59,18 @@ impl TcpServer {
 			}
 		};
 
-		let local_set = task::LocalSet::new();
-		let cache = self.cache.clone();
+		let cache = Arc::clone(&self.cache);
 
-		local_set.spawn_local(TcpServer::handle_connection(connection, cache));
-
-		local_set.await;
+		tokio::spawn(async move {
+			TcpServer::handle_connection(connection, cache).await;
+		});
 
 		Ok(())
 	}
 
 	async fn handle_connection(
 		mut connection: TcpConnection,
-		cache: Arc<Mutex<PaperCache<'static, u64, String>>>
+		cache: Arc<Mutex<Cache>>
 	) {
 		loop {
 			let command = match connection.get_command().await {
@@ -96,7 +97,7 @@ impl TcpServer {
 				},
 
 				Command::Get(key) => {
-					let mut guard = cache.lock().unwrap();
+					let mut guard = cache.lock().await;
 
 					let (is_ok, response) = match guard.get(&key) {
 						Ok(response) => (true, response.to_owned()),
@@ -110,8 +111,8 @@ impl TcpServer {
 					}
 				},
 
-				Command::Set(key, value) => {
-					let mut guard = cache.lock().unwrap();
+				/*Command::Set(key, value) => {
+					let mut guard = cache.write().await;
 
 					let (is_ok, response) = match guard.set(key, value, None) {
 						Ok(_) => (true, "456".to_owned()),
@@ -126,7 +127,7 @@ impl TcpServer {
 				},
 
 				Command::Del(key) => {
-					let mut guard = cache.lock().unwrap();
+					let mut guard = cache.write().await;
 
 					let (is_ok, response) = match guard.del(&key) {
 						Ok(_) => (true, "blank".to_owned()),
@@ -138,7 +139,7 @@ impl TcpServer {
 					if let Err(_) = connection.send_response(&sheet.serialize()).await {
 						println!("Error sending response to command.");
 					}
-				},
+				},*/
 
 				_ => {
 					let sheet = Sheet::new(true, 16, "Sample text here".to_owned());
