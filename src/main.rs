@@ -32,7 +32,7 @@ async fn main() {
 	let mut server = match TcpServer::new(&args.host, &args.port, cache).await {
 		Ok(server) => {
 			println!("{}", ASCII_LOGO);
-			println!("Listening for connections...");
+			println!("\x1B[36mListening for connections...\x1B[0m");
 
 			server
 		},

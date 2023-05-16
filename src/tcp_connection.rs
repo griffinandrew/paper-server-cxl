@@ -25,7 +25,7 @@ impl TcpConnection {
 			));
 		}
 
-		Command::from_stream(&self.stream)
+		Command::from_stream(&self.stream).await
 
 		/*match self.stream.try_read(&mut buf) {
 			Ok(0) => {

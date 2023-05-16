@@ -2,8 +2,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::net::TcpListener;
 use paper_core::sheet::Sheet;
-use paper_cache::PaperCache;
-use crate::server_error::{PaperError, ServerError, ErrorKind};
+use paper_cache::{PaperCache, PaperError as CachePaperError};
+use crate::server_error::{ServerError, ErrorKind, PaperError as ServerPaperError};
 use crate::command::Command;
 use crate::tcp_connection::TcpConnection;
 
@@ -76,8 +76,8 @@ impl TcpServer {
 			let command = match connection.get_command().await {
 				Ok(command) => command,
 
-				Err(ref err) if err.kind() == &ErrorKind::ConnectionLost => {
-					println!("{}", err.message());
+				Err(ref err) if err.kind() == &ErrorKind::Disconnected => {
+					println!("\x1B[33mDisconnected\x1B[0m:\t<{}>", connection.ip());
 					return;
 				},
 
@@ -89,7 +89,7 @@ impl TcpServer {
 
 			match command {
 				Command::Ping => {
-					let sheet = Sheet::new(true, 4, "PONG".to_owned());
+					let sheet = Sheet::new(true, 4, "pong".to_owned());
 
 					if let Err(_) = connection.send_response(&sheet.serialize()).await {
 						println!("Error sending response to command.");
@@ -111,11 +111,11 @@ impl TcpServer {
 					}
 				},
 
-				/*Command::Set(key, value) => {
-					let mut guard = cache.write().await;
+				Command::Set(key, value, ttl) => {
+					let mut guard = cache.lock().await;
 
-					let (is_ok, response) = match guard.set(key, value, None) {
-						Ok(_) => (true, "456".to_owned()),
+					let (is_ok, response) = match guard.set(key, value, ttl) {
+						Ok(_) => (true, "blank".to_owned()),
 						Err(err) => (false, err.message().to_owned()),
 					};
 
@@ -127,7 +127,7 @@ impl TcpServer {
 				},
 
 				Command::Del(key) => {
-					let mut guard = cache.write().await;
+					let mut guard = cache.lock().await;
 
 					let (is_ok, response) = match guard.del(&key) {
 						Ok(_) => (true, "blank".to_owned()),
@@ -139,10 +139,32 @@ impl TcpServer {
 					if let Err(_) = connection.send_response(&sheet.serialize()).await {
 						println!("Error sending response to command.");
 					}
-				},*/
+				},
 
-				_ => {
-					let sheet = Sheet::new(true, 16, "Sample text here".to_owned());
+				Command::Resize(size) => {
+					let mut guard = cache.lock().await;
+
+					let (is_ok, response) = match guard.resize(&(size as usize)) {
+						Ok(_) => (true, "blank".to_owned()),
+						Err(err) => (false, err.message().to_owned()),
+					};
+
+					let sheet = Sheet::new(is_ok, response.len() as u32, response);
+
+					if let Err(_) = connection.send_response(&sheet.serialize()).await {
+						println!("Error sending response to command.");
+					}
+				},
+
+				Command::Policy(policy) => {
+					let mut guard = cache.lock().await;
+
+					let (is_ok, response) = match guard.policy(policy) {
+						Ok(_) => (true, "blank".to_owned()),
+						Err(err) => (false, err.message().to_owned()),
+					};
+
+					let sheet = Sheet::new(is_ok, response.len() as u32, response);
 
 					if let Err(_) = connection.send_response(&sheet.serialize()).await {
 						println!("Error sending response to command.");
