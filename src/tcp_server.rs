@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::net::TcpListener;
 use paper_core::sheet::Sheet;
-use paper_cache::{PaperCache, PaperError as CachePaperError};
+use paper_cache::PaperCache;
 use crate::server_error::{ServerError, ErrorKind, PaperError as ServerPaperError};
 use crate::command::Command;
 use crate::tcp_connection::TcpConnection;
