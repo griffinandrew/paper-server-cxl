@@ -26,30 +26,6 @@ impl TcpConnection {
 		}
 
 		Command::from_stream(&self.stream).await
-
-		/*match self.stream.try_read(&mut buf) {
-			Ok(0) => {
-				return Err(ServerError::new(
-					ErrorKind::ConnectionLost,
-					&format!("\x1B[31mDisconnected\x1B[0m:\t<{}>", self.ip())
-				));
-			},
-
-			Ok(_) => {
-				return Command::deserialize(&buf);
-			},
-
-			Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
-				continue;
-			},
-
-			Err(_) => {
-				return Err(ServerError::new(
-					ErrorKind::InvalidCommand,
-					"Invalid command."
-				));
-			}
-		}*/
 	}
 
 	pub async fn send_response(&mut self, buf: &[u8]) -> Result<(), ServerError> {
