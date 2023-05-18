@@ -8,7 +8,7 @@ use std::sync::{Arc};
 use tokio::sync::Mutex;
 use clap::Parser;
 use paper_core::error::PaperError;
-use paper_cache::PaperCache;
+use paper_cache::{PaperCache, SizeOfObject};
 use crate::tcp_server::TcpServer;
 use crate::logo::ASCII_LOGO;
 
@@ -25,8 +25,17 @@ struct Args {
 #[tokio::main]
 async fn main() {
 	let args = Args::parse();
+
+	let size_of_object: SizeOfObject<String> = |data: &String| {
+		data.len() as u64
+	};
+
 	let cache = Arc::new(Mutex::new(
-		PaperCache::<u32, String>::new(100 * 1024 * 1024, None).unwrap()
+		PaperCache::<u32, String>::new(
+			100 * 1024 * 1024,
+			size_of_object,
+			None
+		).unwrap()
 	));
 
 	let mut server = match TcpServer::new(&args.host, &args.port, cache).await {

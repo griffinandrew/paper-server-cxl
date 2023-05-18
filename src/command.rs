@@ -16,6 +16,8 @@ pub enum Command {
 
 	Resize(u64),
 	Policy(CachePolicy),
+
+	Stats,
 }
 
 impl Command {
@@ -72,6 +74,8 @@ impl Command {
 
 				Ok(Command::Policy(policy))
 			},
+
+			6 => Ok(Command::Stats),
 
 			_ => Err(ServerError::new(
 				ErrorKind::InvalidCommand,
