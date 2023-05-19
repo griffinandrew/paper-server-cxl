@@ -15,7 +15,7 @@ pub enum Command {
 	Del(u32),
 
 	Resize(u64),
-	Policy(CachePolicy),
+	Policy(&'static CachePolicy),
 
 	Stats,
 }
@@ -61,8 +61,8 @@ impl Command {
 				let byte = read_u8(stream).await?;
 
 				let policy = match byte {
-					0 => CachePolicy::Lru,
-					1 => CachePolicy::Mru,
+					0 => &CachePolicy::Lru,
+					1 => &CachePolicy::Mru,
 
 					_ => {
 						return Err(ServerError::new(

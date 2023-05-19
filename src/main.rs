@@ -48,7 +48,7 @@ async fn main() {
 		PaperCache::<u32, String>::new(
 			*config.get_max_size(),
 			size_of_object,
-			None
+			Some(config.get_policies().to_vec()),
 		).unwrap()
 	));
 

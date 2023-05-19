@@ -4,12 +4,12 @@ use crate::server_error::{ServerError, ErrorKind};
 
 pub struct Config {
 	max_size: u64,
-	policy: CachePolicy,
+	policies: Vec<&'static CachePolicy>,
 }
 
 enum ConfigValue {
 	MaxSize(u64),
-	Policy(CachePolicy),
+	Policies(Vec<&'static CachePolicy>),
 }
 
 impl Config {
@@ -27,11 +27,13 @@ impl Config {
 
 		let mut config = Config {
 			max_size: 0,
-			policy: CachePolicy::Lru,
+			policies: vec![],
 		};
 
 		while let Some(line) = reader.read_line() {
-			if line.len() == 0 {
+			let trimmed_line = line.trim();
+
+			if trimmed_line.len() == 0 || trimmed_line.starts_with("#") {
 				continue;
 			}
 
@@ -47,8 +49,8 @@ impl Config {
 		&self.max_size
 	}
 
-	pub fn get_policy(&self) -> &CachePolicy {
-		&self.policy
+	pub fn get_policies(&self) -> &Vec<&'static CachePolicy> {
+		&self.policies
 	}
 
 	fn parse_line(config: &mut Config, line: &String) -> Result<(), ServerError> {
@@ -63,7 +65,7 @@ impl Config {
 
 		let config_value = match tokens[0] {
 			"max_size" => parse_max_size(&tokens[1]),
-			"policy" => parse_policy(&tokens[1]),
+			"policies" => parse_policies(&tokens[1]),
 
 			_ => Err(ServerError::new(
 				ErrorKind::InvalidConfig,
@@ -75,7 +77,7 @@ impl Config {
 			Ok(value) => {
 				match value {
 					ConfigValue::MaxSize(max_size) => config.max_size = max_size,
-					ConfigValue::Policy(policy) => config.policy = policy,
+					ConfigValue::Policies(policies) => config.policies = policies,
 				}
 			},
 
@@ -99,14 +101,31 @@ fn parse_max_size(value: &str) -> Result<ConfigValue, ServerError> {
 	}
 }
 
-fn parse_policy(value: &str) -> Result<ConfigValue, ServerError> {
-	match value {
-		"lru" => Ok(ConfigValue::Policy(CachePolicy::Lru)),
-		"mru" => Ok(ConfigValue::Policy(CachePolicy::Mru)),
+fn parse_policies(value: &str) -> Result<ConfigValue, ServerError> {
+	let tokens: Vec<&str> = value.split("|").collect();
 
-		_ => Err(ServerError::new(
+	if tokens.is_empty() {
+		return Err(ServerError::new(
 			ErrorKind::InvalidConfig,
-			"Invalid policy config."
-		)),
+			"Invalid policies config."
+		));
 	}
+
+	let mut policies = Vec::<&CachePolicy>::new();
+
+	for token in tokens {
+		match token {
+			"lru" => policies.push(&CachePolicy::Lru),
+			"mru" => policies.push(&CachePolicy::Mru),
+
+			_ => {
+				return Err(ServerError::new(
+					ErrorKind::InvalidConfig,
+					&format!("Invalid policy <{}> in config.", token)
+				));
+			},
+		}
+	}
+
+	Ok(ConfigValue::Policies(policies))
 }
