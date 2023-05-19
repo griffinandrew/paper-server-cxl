@@ -3,7 +3,7 @@ use tokio::sync::Mutex;
 use tokio::net::TcpListener;
 use paper_core::sheet::{Sheet, SheetBuilder};
 use paper_cache::{PaperCache, PaperError};
-use crate::server_error::{PaperError as ServerPaperError, ServerError, ErrorKind};
+use crate::server_error::{ServerError, ErrorKind};
 use crate::command::Command;
 use crate::tcp_connection::TcpConnection;
 
