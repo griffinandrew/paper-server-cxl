@@ -1,6 +1,8 @@
 use std::io;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
+use paper_core::error::PaperError;
+use paper_core::stream::ErrorKind as StreamErrorKind;
 use crate::server_error::{ServerError, ErrorKind};
 use crate::command::Command;
 
@@ -25,7 +27,19 @@ impl TcpConnection {
 			));
 		}
 
-		Command::from_stream(&self.stream).await
+		match Command::from_stream(&self.stream).await {
+			Ok(command) => Ok(command),
+
+			Err(err) if err.kind() == &StreamErrorKind::Disconnected => Err(ServerError::new(
+				ErrorKind::Disconnected,
+				"Disconnected from client."
+			)),
+
+			Err(err) => Err(ServerError::new(
+				ErrorKind::InvalidCommand,
+				err.message(),
+			)),
+		}
 	}
 
 	pub async fn send_response(&mut self, buf: &[u8]) -> Result<(), ServerError> {

@@ -1,11 +1,14 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::net::TcpListener;
-use paper_core::sheet::{Sheet, SheetBuilder};
 use paper_cache::{PaperCache, PaperError};
-use crate::server_error::{ServerError, ErrorKind};
+use crate::server_error::{PaperError as ServerPaperError, ServerError, ErrorKind};
 use crate::command::Command;
 use crate::tcp_connection::TcpConnection;
+
+use paper_core::sheet::builder::{
+	SheetBuilder,
+};
 
 type Cache = PaperCache<u32, String>;
 
@@ -68,10 +71,7 @@ impl TcpServer {
 		Ok(())
 	}
 
-	async fn handle_connection(
-		mut connection: TcpConnection,
-		cache: Arc<Mutex<Cache>>
-	) {
+	async fn handle_connection(mut connection: TcpConnection, cache: Arc<Mutex<Cache>>) {
 		loop {
 			let command = match connection.get_command().await {
 				Ok(command) => command,
@@ -87,106 +87,100 @@ impl TcpServer {
 				},
 			};
 
-			match command {
+			let sheet = match command {
 				Command::Ping => {
-					let sheet = Sheet::new(true, b"pong".to_vec());
-
-					if let Err(_) = connection.send_response(&sheet.serialize()).await {
-						println!("Error sending response to command.");
-					}
+					SheetBuilder::new()
+						.write_bool(&true)
+						.write_str("pong")
+						.to_sheet()
 				},
 
 				Command::Get(key) => {
 					let mut cache = cache.lock().await;
 
 					let (is_ok, response) = match cache.get(&key) {
-						Ok(response) => (true, response.as_bytes().to_vec()),
-						Err(err) => (false, err.message().as_bytes().to_vec()),
+						Ok(response) => (true, response.to_owned()),
+						Err(err) => (false, err.message().to_string()),
 					};
 
-					let sheet = Sheet::new(is_ok, response);
-
-					if let Err(_) = connection.send_response(&sheet.serialize()).await {
-						println!("Error sending response to command.");
-					}
+					SheetBuilder::new()
+						.write_bool(&is_ok)
+						.write_str(&response)
+						.to_sheet()
 				},
 
 				Command::Set(key, value, ttl) => {
 					let mut cache = cache.lock().await;
 
 					let (is_ok, response) = match cache.set(key, value, ttl) {
-						Ok(_) => (true, b"blank".to_vec()),
-						Err(err) => (false, err.message().as_bytes().to_vec()),
+						Ok(_) => (true, "done".to_owned()),
+						Err(err) => (false, err.message().to_string()),
 					};
 
-					let sheet = Sheet::new(is_ok, response);
-
-					if let Err(_) = connection.send_response(&sheet.serialize()).await {
-						println!("Error sending response to command.");
-					}
+					SheetBuilder::new()
+						.write_bool(&is_ok)
+						.write_str(&response)
+						.to_sheet()
 				},
 
 				Command::Del(key) => {
 					let mut cache = cache.lock().await;
 
 					let (is_ok, response) = match cache.del(&key) {
-						Ok(_) => (true, b"blank".to_vec()),
-						Err(err) => (false, err.message().as_bytes().to_vec()),
+						Ok(_) => (true, "done".to_owned()),
+						Err(err) => (false, err.message().to_string()),
 					};
 
-					let sheet = Sheet::new(is_ok, response);
-
-					if let Err(_) = connection.send_response(&sheet.serialize()).await {
-						println!("Error sending response to command.");
-					}
+					SheetBuilder::new()
+						.write_bool(&is_ok)
+						.write_str(&response)
+						.to_sheet()
 				},
 
 				Command::Resize(size) => {
 					let mut cache = cache.lock().await;
 
 					let (is_ok, response) = match cache.resize(&size) {
-						Ok(_) => (true, b"blank".to_vec()),
-						Err(err) => (false, err.message().as_bytes().to_vec()),
+						Ok(_) => (true, "done".to_owned()),
+						Err(err) => (false, err.message().to_string()),
 					};
 
-					let sheet = Sheet::new(is_ok, response);
-
-					if let Err(_) = connection.send_response(&sheet.serialize()).await {
-						println!("Error sending response to command.");
-					}
+					SheetBuilder::new()
+						.write_bool(&is_ok)
+						.write_str(&response)
+						.to_sheet()
 				},
 
 				Command::Policy(policy) => {
 					let mut cache = cache.lock().await;
 
 					let (is_ok, response) = match cache.policy(policy) {
-						Ok(_) => (true, b"blank".to_vec()),
-						Err(err) => (false, err.message().as_bytes().to_vec()),
+						Ok(_) => (true, "done".to_string()),
+						Err(err) => (false, err.message().to_string()),
 					};
 
-					let sheet = Sheet::new(is_ok, response);
-
-					if let Err(_) = connection.send_response(&sheet.serialize()).await {
-						println!("Error sending response to command.");
-					}
+					SheetBuilder::new()
+						.write_bool(&is_ok)
+						.write_str(&response)
+						.to_sheet()
 				},
 
 				Command::Stats => {
 					let cache = cache.lock().await;
-
 					let stats = cache.stats();
 
-					let sheet = SheetBuilder::new(true)
-						.add_u64(stats.get_max_size())
-						.add_u64(stats.get_used_size())
-						.add_u64(stats.get_total_gets())
-						.add_f64(&stats.get_miss_ratio())
-						.to_sheet();
-
-					if let Err(_) = connection.send_response(&sheet.serialize()).await {
-						println!("Error sending response to command.");
-					}
+					SheetBuilder::new()
+						.write_bool(&true)
+						.write_u64(stats.get_max_size())
+						.write_u64(stats.get_used_size())
+						.write_u64(stats.get_total_gets())
+						.write_f64(&stats.get_miss_ratio())
+						.to_sheet()
 				},
+			};
+
+			if let Err(_) = connection.send_response(sheet.serialize()).await {
+				println!("Error sending response to command.");
 			}
 		}
 	}
