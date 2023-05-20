@@ -1,8 +1,9 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::net::TcpListener;
-use paper_cache::{PaperCache, PaperError};
-use crate::server_error::{PaperError as ServerPaperError, ServerError, ErrorKind};
+use paper_core::error::PaperError;
+use paper_cache::PaperCache;
+use crate::server_error::{ServerError, ErrorKind};
 use crate::command::Command;
 use crate::tcp_connection::TcpConnection;
 
