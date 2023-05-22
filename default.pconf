@@ -1,0 +1,15 @@
+# Defaults to localhost
+host=127.0.0.1
+
+# Default port
+port=3145
+
+# Maximum size of the cache specified in bytes
+max_size=100000000
+
+# Policies which should be considered by the cache
+# Pipe-separated list
+# Possible values:
+# - lru
+# - mru
+policies=lru|mru

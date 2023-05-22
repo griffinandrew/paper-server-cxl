@@ -17,12 +17,6 @@ use crate::config::Config;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-	#[arg(short, long, default_value = "127.0.0.1")]
-	host: String,
-
-	#[arg(short, long, default_value_t = 3145)]
-	port: u32,
-
 	#[arg(short, long)]
 	config: String,
 }
@@ -46,13 +40,13 @@ async fn main() {
 
 	let cache = Arc::new(Mutex::new(
 		PaperCache::<u32, String>::new(
-			*config.get_max_size(),
+			*config.max_size(),
 			size_of_object,
-			Some(config.get_policies().to_vec()),
+			Some(config.policies().to_vec()),
 		).unwrap()
 	));
 
-	let mut server = match TcpServer::new(&args.host, &args.port, cache).await {
+	let mut server = match TcpServer::new(config.host(), config.port(), cache).await {
 		Ok(server) => {
 			println!("{}", ASCII_LOGO);
 			println!("\x1B[36mListening for connections...\x1B[0m");

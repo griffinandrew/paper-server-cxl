@@ -3,11 +3,17 @@ use paper_cache::policy::Policy as CachePolicy;
 use crate::server_error::{ServerError, ErrorKind};
 
 pub struct Config {
+	host: String,
+	port: u32,
+
 	max_size: u64,
 	policies: Vec<&'static CachePolicy>,
 }
 
 enum ConfigValue {
+	Host(String),
+	Port(u32),
+
 	MaxSize(u64),
 	Policies(Vec<&'static CachePolicy>),
 }
@@ -26,6 +32,9 @@ impl Config {
 		};
 
 		let mut config = Config {
+			host: String::new(),
+			port: 0,
+
 			max_size: 0,
 			policies: vec![],
 		};
@@ -45,11 +54,19 @@ impl Config {
 		Ok(config)
 	}
 
-	pub fn get_max_size(&self) -> &u64 {
+	pub fn host(&self) -> &str {
+		&self.host
+	}
+
+	pub fn port(&self) -> &u32 {
+		&self.port
+	}
+
+	pub fn max_size(&self) -> &u64 {
 		&self.max_size
 	}
 
-	pub fn get_policies(&self) -> &Vec<&'static CachePolicy> {
+	pub fn policies(&self) -> &Vec<&'static CachePolicy> {
 		&self.policies
 	}
 
@@ -64,6 +81,9 @@ impl Config {
 		}
 
 		let config_value = match tokens[0] {
+			"host" => Ok(ConfigValue::Host(tokens[1].to_string())),
+			"port" => parse_port(&tokens[1]),
+
 			"max_size" => parse_max_size(&tokens[1]),
 			"policies" => parse_policies(&tokens[1]),
 
@@ -76,6 +96,9 @@ impl Config {
 		match config_value {
 			Ok(value) => {
 				match value {
+					ConfigValue::Host(host) => config.host = host,
+					ConfigValue::Port(port) => config.port = port,
+
 					ConfigValue::MaxSize(max_size) => config.max_size = max_size,
 					ConfigValue::Policies(policies) => config.policies = policies,
 				}
@@ -87,6 +110,17 @@ impl Config {
 		}
 
 		Ok(())
+	}
+}
+
+fn parse_port(value: &str) -> Result<ConfigValue, ServerError> {
+	match value.parse::<u32>() {
+		Ok(value) => Ok(ConfigValue::Port(value)),
+
+		Err(_) => Err(ServerError::new(
+			ErrorKind::InvalidConfig,
+			"Invalid port config."
+		)),
 	}
 }
 
