@@ -5,7 +5,7 @@ mod tcp_server;
 mod tcp_connection;
 mod config;
 
-use std::sync::{Arc};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use clap::Parser;
 use paper_core::error::PaperError;
