@@ -7,7 +7,7 @@ pub enum Command {
 	Ping,
 
 	Get(u32),
-	Set(u32, String, Option<u32>),
+	Set(u32, Buffer, Option<u32>),
 	Del(u32),
 
 	Resize(u64),
@@ -31,7 +31,7 @@ impl Command {
 
 			2 => {
 				let key = reader.read_buf().await?;
-				let value = reader.read_string().await?;
+				let value = reader.read_buf().await?;
 
 				let ttl = match reader.read_u32().await? {
 					0 => None,

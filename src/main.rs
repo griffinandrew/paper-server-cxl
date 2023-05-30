@@ -8,7 +8,9 @@ mod config;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use clap::Parser;
+use kwik::mem;
 use paper_core::error::PaperError;
+use paper_core::stream::Buffer;
 use paper_cache::{PaperCache, SizeOfObject};
 use crate::tcp_server::TcpServer;
 use crate::logo::ASCII_LOGO;
@@ -34,12 +36,12 @@ async fn main() {
 		},
 	};
 
-	let size_of_object: SizeOfObject<String> = |data: &String| {
-		data.len() as u64
+	let size_of_object: SizeOfObject<Buffer> = |data: &Buffer| {
+		mem::size_of_vec(data) as u64
 	};
 
 	let cache = Arc::new(Mutex::new(
-		PaperCache::<u32, String>::new(
+		PaperCache::<u32, Buffer>::new(
 			*config.max_size(),
 			size_of_object,
 			Some(config.policies().to_vec()),

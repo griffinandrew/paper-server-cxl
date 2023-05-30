@@ -2,13 +2,14 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::net::TcpListener;
 use paper_core::error::PaperError;
+use paper_core::stream::Buffer;
 use paper_core::sheet::builder::SheetBuilder;
 use paper_cache::PaperCache;
 use crate::server_error::{ServerError, ErrorKind};
 use crate::command::Command;
 use crate::tcp_connection::TcpConnection;
 
-type Cache = PaperCache<u32, String>;
+type Cache = PaperCache<u32, Buffer>;
 
 pub struct TcpServer {
 	listener: TcpListener,
@@ -89,7 +90,7 @@ impl TcpServer {
 				Command::Ping => {
 					SheetBuilder::new()
 						.write_bool(&true)
-						.write_str("pong")
+						.write_buf(b"pong")
 						.to_sheet()
 				},
 
@@ -97,13 +98,13 @@ impl TcpServer {
 					let mut cache = cache.lock().await;
 
 					let (is_ok, response) = match cache.get(&key) {
-						Ok(response) => (true, response.to_owned()),
-						Err(err) => (false, err.message().to_string()),
+						Ok(response) => (true, response),
+						Err(err) => (false, err.message().as_bytes().to_vec()),
 					};
 
 					SheetBuilder::new()
 						.write_bool(&is_ok)
-						.write_str(&response)
+						.write_buf(&response)
 						.to_sheet()
 				},
 
@@ -111,13 +112,13 @@ impl TcpServer {
 					let mut cache = cache.lock().await;
 
 					let (is_ok, response) = match cache.set(key, value, ttl) {
-						Ok(_) => (true, "done".to_owned()),
-						Err(err) => (false, err.message().to_string()),
+						Ok(_) => (true, b"done".to_vec()),
+						Err(err) => (false, err.message().as_bytes().to_vec()),
 					};
 
 					SheetBuilder::new()
 						.write_bool(&is_ok)
-						.write_str(&response)
+						.write_buf(&response)
 						.to_sheet()
 				},
 
@@ -125,13 +126,13 @@ impl TcpServer {
 					let mut cache = cache.lock().await;
 
 					let (is_ok, response) = match cache.del(&key) {
-						Ok(_) => (true, "done".to_owned()),
-						Err(err) => (false, err.message().to_string()),
+						Ok(_) => (true, b"done".to_vec()),
+						Err(err) => (false, err.message().as_bytes().to_vec()),
 					};
 
 					SheetBuilder::new()
 						.write_bool(&is_ok)
-						.write_str(&response)
+						.write_buf(&response)
 						.to_sheet()
 				},
 
@@ -139,13 +140,13 @@ impl TcpServer {
 					let mut cache = cache.lock().await;
 
 					let (is_ok, response) = match cache.resize(&size) {
-						Ok(_) => (true, "done".to_owned()),
-						Err(err) => (false, err.message().to_string()),
+						Ok(_) => (true, b"done".to_vec()),
+						Err(err) => (false, err.message().as_bytes().to_vec()),
 					};
 
 					SheetBuilder::new()
 						.write_bool(&is_ok)
-						.write_str(&response)
+						.write_buf(&response)
 						.to_sheet()
 				},
 
@@ -153,13 +154,13 @@ impl TcpServer {
 					let mut cache = cache.lock().await;
 
 					let (is_ok, response) = match cache.policy(policy) {
-						Ok(_) => (true, "done".to_string()),
-						Err(err) => (false, err.message().to_string()),
+						Ok(_) => (true, b"done".to_vec()),
+						Err(err) => (false, err.message().as_bytes().to_vec()),
 					};
 
 					SheetBuilder::new()
 						.write_bool(&is_ok)
-						.write_str(&response)
+						.write_buf(&response)
 						.to_sheet()
 				},
 
