@@ -4,17 +4,17 @@ mod command;
 mod tcp_server;
 mod tcp_connection;
 mod config;
+mod object_buffer;
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use clap::Parser;
-use kwik::mem;
 use paper_core::error::PaperError;
-use paper_core::stream::Buffer;
-use paper_cache::{PaperCache, SizeOfObject};
+use paper_cache::PaperCache;
 use crate::tcp_server::TcpServer;
 use crate::logo::ASCII_LOGO;
 use crate::config::Config;
+use crate::object_buffer::ObjectBuffer;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -36,14 +36,9 @@ async fn main() {
 		},
 	};
 
-	let size_of_object: SizeOfObject<Buffer> = |data: &Buffer| {
-		mem::size_of_vec(data) as u64
-	};
-
 	let cache = Arc::new(Mutex::new(
-		PaperCache::<u32, Buffer>::new(
+		PaperCache::<u32, ObjectBuffer>::new(
 			*config.max_size(),
-			size_of_object,
 			Some(config.policies().to_vec()),
 		).unwrap()
 	));

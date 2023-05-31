@@ -2,14 +2,14 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::net::TcpListener;
 use paper_core::error::PaperError;
-use paper_core::stream::Buffer;
 use paper_core::sheet::builder::SheetBuilder;
 use paper_cache::PaperCache;
 use crate::server_error::{ServerError, ErrorKind};
+use crate::object_buffer::ObjectBuffer;
 use crate::command::Command;
 use crate::tcp_connection::TcpConnection;
 
-type Cache = PaperCache<u32, Buffer>;
+type Cache = PaperCache<u32, ObjectBuffer>;
 
 pub struct TcpServer {
 	listener: TcpListener,
@@ -98,7 +98,7 @@ impl TcpServer {
 					let mut cache = cache.lock().await;
 
 					let (is_ok, response) = match cache.get(&key) {
-						Ok(response) => (true, response),
+						Ok(response) => (true, response.to_buf()),
 						Err(err) => (false, err.message().as_bytes().to_vec()),
 					};
 
