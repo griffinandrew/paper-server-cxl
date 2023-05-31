@@ -136,6 +136,20 @@ impl TcpServer {
 						.to_sheet()
 				},
 
+				Command::Clear => {
+					let mut cache = cache.lock().await;
+
+					let (is_ok, response) = match cache.clear() {
+						Ok(_) => (true, b"done".to_vec()),
+						Err(err) => (false, err.message().as_bytes().to_vec()),
+					};
+
+					SheetBuilder::new()
+						.write_bool(&is_ok)
+						.write_buf(&response)
+						.to_sheet()
+				},
+
 				Command::Resize(size) => {
 					let mut cache = cache.lock().await;
 

@@ -11,6 +11,8 @@ pub enum Command {
 	Set(u32, ObjectBuffer, Option<u32>),
 	Del(u32),
 
+	Clear,
+
 	Resize(u64),
 	Policy(&'static CachePolicy),
 
@@ -50,15 +52,17 @@ impl Command {
 				let key = reader.read_buf().await?;
 
 				Ok(Command::Del(hash(&key)))
-			}
+			},
 
-			4 => {
+			4 => Ok(Command::Clear),
+
+			5 => {
 				let size = reader.read_u64().await?;
 
 				Ok(Command::Resize(size))
 			},
 
-			5 => {
+			6 => {
 				let byte = reader.read_u8().await?;
 
 				let policy = match byte {
@@ -76,7 +80,7 @@ impl Command {
 				Ok(Command::Policy(policy))
 			},
 
-			6 => Ok(Command::Stats),
+			7 => Ok(Command::Stats),
 
 			_ => Err(StreamError::new(
 				ErrorKind::InvalidData,
