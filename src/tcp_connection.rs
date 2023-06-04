@@ -20,7 +20,7 @@ impl TcpConnection {
 	}
 
 	pub async fn get_command(&mut self) -> Result<Command, ServerError> {
-		if let Err(_) = self.stream.readable().await {
+		if (self.stream.readable().await).is_err() {
 			return Err(ServerError::new(
 				ErrorKind::InvalidStream,
 				"An error occured while communicating with the client."
@@ -44,7 +44,7 @@ impl TcpConnection {
 
 	pub async fn send_response(&mut self, buf: &[u8]) -> Result<(), ServerError> {
 		loop {
-			if let Err(_) = self.stream.writable().await {
+			if (self.stream.writable().await).is_err() {
 				return Err(ServerError::new(
 					ErrorKind::InvalidStream,
 					"An error occured while communicating with the client."

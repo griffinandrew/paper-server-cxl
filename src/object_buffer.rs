@@ -14,7 +14,7 @@ impl ObjectBuffer {
 		}
 	}
 
-	pub fn to_buf(self) -> Buffer {
+	pub fn into_buf(self) -> Buffer {
 		self.buf
 	}
 }

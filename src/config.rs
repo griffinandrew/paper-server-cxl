@@ -42,13 +42,11 @@ impl Config {
 		while let Some(line) = reader.read_line() {
 			let trimmed_line = line.trim();
 
-			if trimmed_line.len() == 0 || trimmed_line.starts_with("#") {
+			if trimmed_line.is_empty() || trimmed_line.starts_with('#') {
 				continue;
 			}
 
-			if let Err(err) = Config::parse_line(&mut config, &line) {
-				return Err(err);
-			}
+			Config::parse_line(&mut config, line)?;
 		}
 
 		Ok(config)
@@ -71,7 +69,7 @@ impl Config {
 	}
 
 	fn parse_line(config: &mut Config, line: &String) -> Result<(), ServerError> {
-		let tokens: Vec<&str> = line.split("=").collect();
+		let tokens: Vec<&str> = line.split('=').collect();
 
 		if tokens.len() != 2 {
 			return Err(ServerError::new(
@@ -82,10 +80,10 @@ impl Config {
 
 		let config_value = match tokens[0] {
 			"host" => Ok(ConfigValue::Host(tokens[1].to_string())),
-			"port" => parse_port(&tokens[1]),
+			"port" => parse_port(tokens[1]),
 
-			"max_size" => parse_max_size(&tokens[1]),
-			"policies" => parse_policies(&tokens[1]),
+			"max_size" => parse_max_size(tokens[1]),
+			"policies" => parse_policies(tokens[1]),
 
 			_ => Err(ServerError::new(
 				ErrorKind::InvalidConfig,
@@ -136,7 +134,7 @@ fn parse_max_size(value: &str) -> Result<ConfigValue, ServerError> {
 }
 
 fn parse_policies(value: &str) -> Result<ConfigValue, ServerError> {
-	let tokens: Vec<&str> = value.split("|").collect();
+	let tokens: Vec<&str> = value.split('|').collect();
 
 	if tokens.is_empty() {
 		return Err(ServerError::new(

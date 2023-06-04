@@ -98,7 +98,7 @@ impl TcpServer {
 					let mut cache = cache.lock().await;
 
 					let (is_ok, response) = match cache.get(&key) {
-						Ok(response) => (true, response.to_buf()),
+						Ok(response) => (true, response.into_buf()),
 						Err(err) => (false, err.message().as_bytes().to_vec()),
 					};
 
@@ -192,7 +192,7 @@ impl TcpServer {
 				},
 			};
 
-			if let Err(_) = connection.send_response(sheet.serialize()).await {
+			if (connection.send_response(sheet.serialize()).await).is_err() {
 				println!("Error sending response to command.");
 			}
 		}
