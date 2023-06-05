@@ -2,13 +2,13 @@ use tokio::net::TcpStream;
 use fasthash::murmur3;
 use paper_core::stream::{Buffer, StreamReader, StreamError, ErrorKind};
 use paper_cache::policy::Policy as CachePolicy;
-use crate::object_buffer::ObjectBuffer;
+use crate::server_object::ServerObject;
 
 pub enum Command {
 	Ping,
 
 	Get(u32),
-	Set(u32, ObjectBuffer, Option<u32>),
+	Set(u32, ServerObject, Option<u32>),
 	Del(u32),
 
 	Clear,
@@ -43,7 +43,7 @@ impl Command {
 
 				Ok(Command::Set(
 					hash(&key),
-					ObjectBuffer::new(value),
+					ServerObject::new(value),
 					ttl
 				))
 			},

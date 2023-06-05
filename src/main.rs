@@ -4,7 +4,7 @@ mod command;
 mod tcp_server;
 mod tcp_connection;
 mod config;
-mod object_buffer;
+mod server_object;
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -14,7 +14,7 @@ use paper_cache::PaperCache;
 use crate::tcp_server::TcpServer;
 use crate::logo::ASCII_LOGO;
 use crate::config::Config;
-use crate::object_buffer::ObjectBuffer;
+use crate::server_object::ServerObject;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -37,7 +37,7 @@ async fn main() {
 	};
 
 	let cache = Arc::new(Mutex::new(
-		PaperCache::<u32, ObjectBuffer>::new(
+		PaperCache::<u32, ServerObject>::new(
 			*config.max_size(),
 			Some(config.policies().to_vec()),
 		).unwrap()

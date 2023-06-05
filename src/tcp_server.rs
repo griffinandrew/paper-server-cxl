@@ -5,11 +5,11 @@ use paper_core::error::PaperError;
 use paper_core::sheet::builder::SheetBuilder;
 use paper_cache::PaperCache;
 use crate::server_error::{ServerError, ErrorKind};
-use crate::object_buffer::ObjectBuffer;
+use crate::server_object::ServerObject;
 use crate::command::Command;
 use crate::tcp_connection::TcpConnection;
 
-type Cache = PaperCache<u32, ObjectBuffer>;
+type Cache = PaperCache<u32, ServerObject>;
 
 pub struct TcpServer {
 	listener: TcpListener,
