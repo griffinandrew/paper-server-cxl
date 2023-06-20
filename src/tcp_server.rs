@@ -94,6 +94,15 @@ impl TcpServer {
 						.to_sheet()
 				},
 
+				Command::Version => {
+					let cache = cache.lock().await;
+
+					SheetBuilder::new()
+						.write_bool(&true)
+						.write_str(&cache.version())
+						.to_sheet()
+				},
+
 				Command::Get(key) => {
 					let mut cache = cache.lock().await;
 

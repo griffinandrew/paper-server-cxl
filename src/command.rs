@@ -6,6 +6,7 @@ use crate::server_object::ServerObject;
 
 pub enum Command {
 	Ping,
+	Version,
 
 	Get(u32),
 	Set(u32, ServerObject, Option<u32>),
@@ -25,14 +26,15 @@ impl Command {
 
 		match reader.read_u8().await? {
 			0 => Ok(Command::Ping),
+			1 => Ok(Command::Version),
 
-			1 => {
+			2 => {
 				let key = reader.read_buf().await?;
 
 				Ok(Command::Get(hash(&key)))
 			},
 
-			2 => {
+			3 => {
 				let key = reader.read_buf().await?;
 				let value = reader.read_buf().await?;
 
@@ -48,21 +50,21 @@ impl Command {
 				))
 			},
 
-			3 => {
+			4 => {
 				let key = reader.read_buf().await?;
 
 				Ok(Command::Del(hash(&key)))
 			},
 
-			4 => Ok(Command::Clear),
+			5 => Ok(Command::Clear),
 
-			5 => {
+			6 => {
 				let size = reader.read_u64().await?;
 
 				Ok(Command::Resize(size))
 			},
 
-			6 => {
+			7 => {
 				let byte = reader.read_u8().await?;
 
 				let policy = match byte {
@@ -80,7 +82,7 @@ impl Command {
 				Ok(Command::Policy(policy))
 			},
 
-			7 => Ok(Command::Stats),
+			8 => Ok(Command::Stats),
 
 			_ => Err(StreamError::new(
 				ErrorKind::InvalidData,
