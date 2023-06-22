@@ -197,6 +197,7 @@ impl TcpServer {
 						.write_u64(stats.get_used_size())
 						.write_u64(stats.get_total_gets())
 						.write_f64(&stats.get_miss_ratio())
+						.write_str(&stats.get_policy().id())
 						.to_sheet()
 				},
 			};
