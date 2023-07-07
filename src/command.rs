@@ -12,7 +12,7 @@ pub enum Command {
 	Set(u32, ServerObject, Option<u32>),
 	Del(u32),
 
-	Clear,
+	Wipe,
 
 	Resize(u64),
 	Policy(&'static CachePolicy),
@@ -56,7 +56,7 @@ impl Command {
 				Ok(Command::Del(hash(&key)))
 			},
 
-			5 => Ok(Command::Clear),
+			5 => Ok(Command::Wipe),
 
 			6 => {
 				let size = reader.read_u64().await?;

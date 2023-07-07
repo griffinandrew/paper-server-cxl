@@ -145,7 +145,7 @@ impl TcpServer {
 						.to_sheet()
 				},
 
-				Command::Clear => {
+				Command::Wipe => {
 					let mut cache = cache.lock().await;
 
 					let (is_ok, response) = match cache.clear() {
