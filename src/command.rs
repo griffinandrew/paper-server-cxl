@@ -70,6 +70,7 @@ impl Command {
 				let policy = match byte {
 					0 => &CachePolicy::Lru,
 					1 => &CachePolicy::Mru,
+					2 => &CachePolicy::Lfu,
 
 					_ => {
 						return Err(StreamError::new(

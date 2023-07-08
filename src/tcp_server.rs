@@ -148,7 +148,7 @@ impl TcpServer {
 				Command::Wipe => {
 					let mut cache = cache.lock().await;
 
-					let (is_ok, response) = match cache.clear() {
+					let (is_ok, response) = match cache.wipe() {
 						Ok(_) => (true, b"done".to_vec()),
 						Err(err) => (false, err.message().as_bytes().to_vec()),
 					};
