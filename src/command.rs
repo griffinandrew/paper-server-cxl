@@ -68,9 +68,9 @@ impl Command {
 				let byte = reader.read_u8().await?;
 
 				let policy = match byte {
-					0 => &CachePolicy::Lru,
-					1 => &CachePolicy::Mru,
-					2 => &CachePolicy::Lfu,
+					0 => &CachePolicy::Lfu,
+					1 => &CachePolicy::Lru,
+					2 => &CachePolicy::Mru,
 
 					_ => {
 						return Err(StreamError::new(

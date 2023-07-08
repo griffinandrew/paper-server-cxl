@@ -12,4 +12,4 @@ max_size=100000000
 # Possible values:
 # - lru
 # - mru
-policies=lru|mru
+policies=lfu|lru|mru
