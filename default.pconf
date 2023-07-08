@@ -10,6 +10,8 @@ max_size=100000000
 # Policies which should be considered by the cache
 # Pipe-separated list
 # Possible values:
+# - lfu
 # - lru
 # - mru
-policies=lfu|lru|mru
+# - fifo
+policies=lfu|lru|mru|fifo

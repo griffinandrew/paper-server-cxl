@@ -71,6 +71,7 @@ impl Command {
 					0 => &CachePolicy::Lfu,
 					1 => &CachePolicy::Lru,
 					2 => &CachePolicy::Mru,
+					3 => &CachePolicy::Fifo,
 
 					_ => {
 						return Err(StreamError::new(

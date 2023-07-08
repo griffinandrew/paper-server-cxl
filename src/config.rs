@@ -150,6 +150,7 @@ fn parse_policies(value: &str) -> Result<ConfigValue, ServerError> {
 			"lfu" => policies.push(&CachePolicy::Lfu),
 			"lru" => policies.push(&CachePolicy::Lru),
 			"mru" => policies.push(&CachePolicy::Mru),
+			"fifo" => policies.push(&CachePolicy::Fifo),
 
 			_ => {
 				return Err(ServerError::new(
