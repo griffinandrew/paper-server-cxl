@@ -196,6 +196,8 @@ impl TcpServer {
 						.write_u64(stats.get_max_size())
 						.write_u64(stats.get_used_size())
 						.write_u64(stats.get_total_gets())
+						.write_u64(stats.get_total_sets())
+						.write_u64(stats.get_total_dels())
 						.write_f64(&stats.get_miss_ratio())
 						.write_u8(&(stats.get_policy().index() as u8))
 						.write_u64(&stats.get_uptime())
