@@ -69,9 +69,9 @@ impl Command {
 
 				let policy = match byte {
 					0 => &CachePolicy::Lfu,
-					1 => &CachePolicy::Lru,
-					2 => &CachePolicy::Mru,
-					3 => &CachePolicy::Fifo,
+					1 => &CachePolicy::Fifo,
+					2 => &CachePolicy::Lru,
+					3 => &CachePolicy::Mru,
 
 					_ => {
 						return Err(StreamError::new(

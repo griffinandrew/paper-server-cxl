@@ -148,9 +148,9 @@ fn parse_policies(value: &str) -> Result<ConfigValue, ServerError> {
 	for token in tokens {
 		match token {
 			"lfu" => policies.push(&CachePolicy::Lfu),
+			"fifo" => policies.push(&CachePolicy::Fifo),
 			"lru" => policies.push(&CachePolicy::Lru),
 			"mru" => policies.push(&CachePolicy::Mru),
-			"fifo" => policies.push(&CachePolicy::Fifo),
 
 			_ => {
 				return Err(ServerError::new(
