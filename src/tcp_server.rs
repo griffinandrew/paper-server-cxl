@@ -21,7 +21,7 @@ pub struct TcpServer {
 impl TcpServer {
 	pub fn new(
 		host: &str,
-		port: &u32,
+		port: u32,
 		cache: Arc<Mutex<Cache>>,
 	) -> Result<Self, ServerError> {
 		let addr = format!("{}:{}", host, port);

@@ -36,7 +36,7 @@ fn main() {
 
 	let cache = Arc::new(Mutex::new(
 		PaperCache::<u32, ServerObject>::new(
-			*config.max_size(),
+			config.max_size(),
 			Some(config.policies().to_vec()),
 		).unwrap()
 	));

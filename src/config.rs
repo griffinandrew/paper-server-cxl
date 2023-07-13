@@ -56,12 +56,12 @@ impl Config {
 		&self.host
 	}
 
-	pub fn port(&self) -> &u32 {
-		&self.port
+	pub fn port(&self) -> u32 {
+		self.port
 	}
 
-	pub fn max_size(&self) -> &u64 {
-		&self.max_size
+	pub fn max_size(&self) -> u64 {
+		self.max_size
 	}
 
 	pub fn policies(&self) -> &Vec<&'static CachePolicy> {
