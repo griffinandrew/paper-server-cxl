@@ -6,10 +6,9 @@ mod tcp_connection;
 mod config;
 mod server_object;
 
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use clap::Parser;
-use paper_core::error::PaperError;
+use paper_utils::error::PaperError;
 use paper_cache::PaperCache;
 use crate::tcp_server::TcpServer;
 use crate::logo::ASCII_LOGO;
@@ -23,8 +22,7 @@ struct Args {
 	config: String,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
 	let args = Args::parse();
 
 	let config = match Config::from_file(&args.config) {
@@ -43,7 +41,7 @@ async fn main() {
 		).unwrap()
 	));
 
-	let mut server = match TcpServer::new(config.host(), config.port(), cache).await {
+	let mut server = match TcpServer::new(config.host(), config.port(), cache) {
 		Ok(server) => {
 			println!("{}", ASCII_LOGO);
 			println!("\x1B[36mListening for connections...\x1B[0m");
@@ -58,7 +56,7 @@ async fn main() {
 	};
 
 	loop {
-		if let Err(err) = server.listen().await {
+		if let Err(err) = server.listen() {
 			println!("\x1B[31mErr\x1B[0m: {}", err.message());
 			continue;
 		}

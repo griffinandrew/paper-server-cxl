@@ -1,6 +1,6 @@
-use tokio::net::TcpStream;
+use std::net::TcpStream;
 use fasthash::murmur3;
-use paper_core::stream::{Buffer, StreamReader, StreamError, ErrorKind};
+use paper_utils::stream::{Buffer, StreamReader, StreamError, ErrorKind};
 use paper_cache::policy::Policy as CachePolicy;
 use crate::server_object::ServerObject;
 
@@ -21,24 +21,24 @@ pub enum Command {
 }
 
 impl Command {
-	pub async fn from_stream(stream: &TcpStream) -> Result<Self, StreamError> {
-		let reader = StreamReader::new(stream);
+	pub fn from_stream(stream: &mut TcpStream) -> Result<Self, StreamError> {
+		let mut reader = StreamReader::new(stream);
 
-		match reader.read_u8().await? {
+		match reader.read_u8()? {
 			0 => Ok(Command::Ping),
 			1 => Ok(Command::Version),
 
 			2 => {
-				let key = reader.read_buf().await?;
+				let key = reader.read_buf()?;
 
 				Ok(Command::Get(hash(&key)))
 			},
 
 			3 => {
-				let key = reader.read_buf().await?;
-				let value = reader.read_buf().await?;
+				let key = reader.read_buf()?;
+				let value = reader.read_buf()?;
 
-				let ttl = match reader.read_u32().await? {
+				let ttl = match reader.read_u32()? {
 					0 => None,
 					value => Some(value),
 				};
@@ -51,7 +51,7 @@ impl Command {
 			},
 
 			4 => {
-				let key = reader.read_buf().await?;
+				let key = reader.read_buf()?;
 
 				Ok(Command::Del(hash(&key)))
 			},
@@ -59,13 +59,13 @@ impl Command {
 			5 => Ok(Command::Wipe),
 
 			6 => {
-				let size = reader.read_u64().await?;
+				let size = reader.read_u64()?;
 
 				Ok(Command::Resize(size))
 			},
 
 			7 => {
-				let byte = reader.read_u8().await?;
+				let byte = reader.read_u8()?;
 
 				let policy = match byte {
 					0 => &CachePolicy::Lfu,

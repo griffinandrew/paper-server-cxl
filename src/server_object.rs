@@ -1,5 +1,5 @@
 use kwik::mem;
-use paper_core::stream::Buffer;
+use paper_utils::stream::Buffer;
 use paper_cache::ObjectMemSize;
 
 #[derive(Clone)]
