@@ -88,7 +88,7 @@ impl TcpServer {
 			let sheet = match command {
 				Command::Ping => {
 					SheetBuilder::new()
-						.write_bool(&true)
+						.write_bool(true)
 						.write_buf(b"pong")
 						.to_sheet()
 				},
@@ -97,7 +97,7 @@ impl TcpServer {
 					let cache = cache.lock().unwrap();
 
 					SheetBuilder::new()
-						.write_bool(&true)
+						.write_bool(true)
 						.write_str(&cache.version())
 						.to_sheet()
 				},
@@ -111,7 +111,7 @@ impl TcpServer {
 					};
 
 					SheetBuilder::new()
-						.write_bool(&is_ok)
+						.write_bool(is_ok)
 						.write_buf(&response)
 						.to_sheet()
 				},
@@ -125,7 +125,7 @@ impl TcpServer {
 					};
 
 					SheetBuilder::new()
-						.write_bool(&is_ok)
+						.write_bool(is_ok)
 						.write_buf(&response)
 						.to_sheet()
 				},
@@ -139,7 +139,7 @@ impl TcpServer {
 					};
 
 					SheetBuilder::new()
-						.write_bool(&is_ok)
+						.write_bool(is_ok)
 						.write_buf(&response)
 						.to_sheet()
 				},
@@ -153,7 +153,7 @@ impl TcpServer {
 					};
 
 					SheetBuilder::new()
-						.write_bool(&is_ok)
+						.write_bool(is_ok)
 						.write_buf(&response)
 						.to_sheet()
 				},
@@ -161,13 +161,13 @@ impl TcpServer {
 				Command::Resize(size) => {
 					let mut cache = cache.lock().unwrap();
 
-					let (is_ok, response) = match cache.resize(&size) {
+					let (is_ok, response) = match cache.resize(size) {
 						Ok(_) => (true, b"done".to_vec()),
 						Err(err) => (false, err.message().as_bytes().to_vec()),
 					};
 
 					SheetBuilder::new()
-						.write_bool(&is_ok)
+						.write_bool(is_ok)
 						.write_buf(&response)
 						.to_sheet()
 				},
@@ -181,7 +181,7 @@ impl TcpServer {
 					};
 
 					SheetBuilder::new()
-						.write_bool(&is_ok)
+						.write_bool(is_ok)
 						.write_buf(&response)
 						.to_sheet()
 				},
@@ -191,15 +191,15 @@ impl TcpServer {
 					let stats = cache.stats();
 
 					SheetBuilder::new()
-						.write_bool(&true)
+						.write_bool(true)
 						.write_u64(stats.get_max_size())
 						.write_u64(stats.get_used_size())
 						.write_u64(stats.get_total_gets())
 						.write_u64(stats.get_total_sets())
 						.write_u64(stats.get_total_dels())
-						.write_f64(&stats.get_miss_ratio())
-						.write_u8(&(stats.get_policy().index() as u8))
-						.write_u64(&stats.get_uptime())
+						.write_f64(stats.get_miss_ratio())
+						.write_u8(stats.get_policy().index() as u8)
+						.write_u64(stats.get_uptime())
 						.to_sheet()
 				},
 			};
