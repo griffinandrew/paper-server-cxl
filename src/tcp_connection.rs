@@ -1,9 +1,17 @@
-use std::io::Write;
-use std::net::TcpStream;
-use paper_utils::error::PaperError;
-use paper_utils::stream::ErrorKind as StreamErrorKind;
-use crate::server_error::{ServerError, ErrorKind};
-use crate::command::Command;
+use std::{
+    io::Write,
+    net::TcpStream,
+};
+
+use paper_utils::{
+    error::PaperError,
+    stream::ErrorKind as StreamErrorKind,
+};
+
+use crate::{
+    server_error::{ServerError, ErrorKind},
+    command::Command,
+};
 
 pub struct TcpConnection {
 	stream: TcpStream,
