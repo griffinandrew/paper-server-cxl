@@ -15,7 +15,7 @@ pub enum Command {
 	Wipe,
 
 	Resize(u64),
-	Policy(&'static CachePolicy),
+	Policy(CachePolicy),
 
 	Stats,
 }
@@ -68,10 +68,10 @@ impl Command {
 				let byte = reader.read_u8()?;
 
 				let policy = match byte {
-					0 => &CachePolicy::Lfu,
-					1 => &CachePolicy::Fifo,
-					2 => &CachePolicy::Lru,
-					3 => &CachePolicy::Mru,
+					0 => CachePolicy::Lfu,
+					1 => CachePolicy::Fifo,
+					2 => CachePolicy::Lru,
+					3 => CachePolicy::Mru,
 
 					_ => {
 						return Err(StreamError::new(

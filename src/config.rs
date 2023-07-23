@@ -7,7 +7,7 @@ pub struct Config {
 	port: u32,
 
 	max_size: u64,
-	policies: Vec<&'static CachePolicy>,
+	policies: Vec<CachePolicy>,
 }
 
 enum ConfigValue {
@@ -15,7 +15,7 @@ enum ConfigValue {
 	Port(u32),
 
 	MaxSize(u64),
-	Policies(Vec<&'static CachePolicy>),
+	Policies(Vec<CachePolicy>),
 }
 
 impl Config {
@@ -36,7 +36,7 @@ impl Config {
 			port: 0,
 
 			max_size: 0,
-			policies: vec![],
+			policies: Vec::new(),
 		};
 
 		while let Some(line) = reader.read_line() {
@@ -64,7 +64,7 @@ impl Config {
 		self.max_size
 	}
 
-	pub fn policies(&self) -> &Vec<&'static CachePolicy> {
+	pub fn policies(&self) -> &Vec<CachePolicy> {
 		&self.policies
 	}
 
@@ -143,14 +143,14 @@ fn parse_policies(value: &str) -> Result<ConfigValue, ServerError> {
 		));
 	}
 
-	let mut policies = Vec::<&CachePolicy>::new();
+	let mut policies = Vec::<CachePolicy>::new();
 
 	for token in tokens {
 		match token {
-			"lfu" => policies.push(&CachePolicy::Lfu),
-			"fifo" => policies.push(&CachePolicy::Fifo),
-			"lru" => policies.push(&CachePolicy::Lru),
-			"mru" => policies.push(&CachePolicy::Mru),
+			"lfu" => policies.push(CachePolicy::Lfu),
+			"fifo" => policies.push(CachePolicy::Fifo),
+			"lru" => policies.push(CachePolicy::Lru),
+			"mru" => policies.push(CachePolicy::Mru),
 
 			_ => {
 				return Err(ServerError::new(
