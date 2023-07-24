@@ -1,16 +1,16 @@
 use std::{
-    io::Write,
-    net::TcpStream,
+	io::Write,
+	net::TcpStream,
 };
 
 use paper_utils::{
-    error::PaperError,
-    stream::ErrorKind as StreamErrorKind,
+	error::PaperError,
+	stream::ErrorKind as StreamErrorKind,
 };
 
 use crate::{
-    server_error::{ServerError, ErrorKind},
-    command::Command,
+	server_error::{ServerError, ErrorKind},
+	command::Command,
 };
 
 pub struct TcpConnection {

@@ -12,10 +12,10 @@ use paper_utils::error::PaperError;
 use paper_cache::PaperCache;
 
 use crate::{
-    tcp_server::TcpServer,
-    logo::ASCII_LOGO,
-    config::Config,
-    server_object::ServerObject,
+	tcp_server::TcpServer,
+	logo::ASCII_LOGO,
+	config::Config,
+	server_object::ServerObject,
 };
 
 #[derive(Parser)]
