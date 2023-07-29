@@ -136,12 +136,12 @@ fn parse_port(value: &str) -> Result<ConfigValue, ServerError> {
 
 fn parse_max_size(value: &str) -> Result<ConfigValue, ServerError> {
 	match value.parse::<u64>() {
-		Ok(value) => Ok(ConfigValue::MaxSize(value)),
-
-		Err(_) => Err(ServerError::new(
+		Ok(0) | Err(_) => Err(ServerError::new(
 			ErrorKind::InvalidConfig,
 			"Invalid max_size config."
 		)),
+
+		Ok(value) => Ok(ConfigValue::MaxSize(value)),
 	}
 }
 
