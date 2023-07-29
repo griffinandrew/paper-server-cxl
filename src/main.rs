@@ -44,7 +44,7 @@ fn main() {
 		).unwrap()
 	));
 
-	let mut server = match TcpServer::new(config.host(), config.port(), cache) {
+	let mut server = match TcpServer::new(&config, cache) {
 		Ok(server) => {
 			println!("{}", ASCII_LOGO);
 			println!("\x1B[36mListening for connections...\x1B[0m");

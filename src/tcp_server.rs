@@ -17,6 +17,7 @@ use crate::{
 	server_object::ServerObject,
 	command::Command,
 	tcp_connection::TcpConnection,
+	config::Config,
 };
 
 type Cache = PaperCache<u32, ServerObject>;
@@ -30,27 +31,22 @@ pub struct TcpServer {
 
 impl TcpServer {
 	pub fn new(
-		host: &str,
-		port: u32,
+		config: &Config,
 		cache: Arc<Mutex<Cache>>,
 	) -> Result<Self, ServerError> {
-		let addr = format!("{}:{}", host, port);
+		let addr = format!("{}:{}", config.host(), config.port());
 
-		let listener = match TcpListener::bind(addr) {
-			Ok(listener) => listener,
-
-			Err(_) => {
-				return Err(ServerError::new(
-					ErrorKind::InvalidAddress,
-					"Could not establish a connection."
-				));
-			}
+		let Ok(listener) = TcpListener::bind(addr) else {
+			return Err(ServerError::new(
+				ErrorKind::InvalidAddress,
+				"Could not establish a connection."
+			));
 		};
 
 		let server = TcpServer {
 			listener,
 			cache,
-			pool: ThreadPool::new(4),
+			pool: ThreadPool::new(config.max_connections()),
 		};
 
 		Ok(server)

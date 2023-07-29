@@ -8,6 +8,8 @@ pub struct Config {
 
 	max_size: u64,
 	policies: Vec<CachePolicy>,
+
+	max_connections: usize,
 }
 
 enum ConfigValue {
@@ -16,6 +18,8 @@ enum ConfigValue {
 
 	MaxSize(u64),
 	Policies(Vec<CachePolicy>),
+
+	MaxConnections(usize),
 }
 
 impl Config {
@@ -37,6 +41,8 @@ impl Config {
 
 			max_size: 0,
 			policies: Vec::new(),
+
+			max_connections: 0,
 		};
 
 		while let Some(line) = reader.read_line() {
@@ -68,6 +74,10 @@ impl Config {
 		&self.policies
 	}
 
+	pub fn max_connections(&self) -> usize {
+		self.max_connections
+	}
+
 	fn parse_line(config: &mut Config, line: &String) -> Result<(), ServerError> {
 		let tokens: Vec<&str> = line.split('=').collect();
 
@@ -85,6 +95,8 @@ impl Config {
 			"max_size" => parse_max_size(tokens[1]),
 			"policies" => parse_policies(tokens[1]),
 
+			"max_connections" => parse_max_connections(tokens[1]),
+
 			_ => Err(ServerError::new(
 				ErrorKind::InvalidConfig,
 				&format!("Invalid config line <{}>", line)
@@ -92,14 +104,14 @@ impl Config {
 		};
 
 		match config_value {
-			Ok(value) => {
-				match value {
-					ConfigValue::Host(host) => config.host = host,
-					ConfigValue::Port(port) => config.port = port,
+			Ok(value) => match value {
+				ConfigValue::Host(host) => config.host = host,
+				ConfigValue::Port(port) => config.port = port,
 
-					ConfigValue::MaxSize(max_size) => config.max_size = max_size,
-					ConfigValue::Policies(policies) => config.policies = policies,
-				}
+				ConfigValue::MaxSize(max_size) => config.max_size = max_size,
+				ConfigValue::Policies(policies) => config.policies = policies,
+
+				ConfigValue::MaxConnections(max_connections) => config.max_connections = max_connections,
 			},
 
 			Err(err) => {
@@ -162,4 +174,15 @@ fn parse_policies(value: &str) -> Result<ConfigValue, ServerError> {
 	}
 
 	Ok(ConfigValue::Policies(policies))
+}
+
+fn parse_max_connections(value: &str) -> Result<ConfigValue, ServerError> {
+	match value.parse::<usize>() {
+		Ok(0) | Err(_) => Err(ServerError::new(
+			ErrorKind::InvalidConfig,
+			"Invalid max_connections config."
+		)),
+
+		Ok(value) => Ok(ConfigValue::MaxConnections(value)),
+	}
 }
