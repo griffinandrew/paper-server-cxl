@@ -1,7 +1,13 @@
 use std::net::TcpStream;
 use fasthash::murmur3;
-use paper_utils::stream::{Buffer, StreamReader, StreamError, ErrorKind};
 use paper_cache::policy::Policy as CachePolicy;
+
+use paper_utils::{
+	stream::{Buffer, StreamReader, StreamError, ErrorKind},
+	command::CommandByte,
+	policy::PolicyByte,
+};
+
 use crate::server_object::ServerObject;
 
 pub enum Command {
@@ -20,8 +26,6 @@ pub enum Command {
 
 	Stats,
 }
-
-struct CommandByte;
 
 impl Command {
 	pub fn from_stream(stream: &mut TcpStream) -> Result<Self, StreamError> {
@@ -73,10 +77,10 @@ impl Command {
 				let byte = reader.read_u8()?;
 
 				let policy = match byte {
-					0 => CachePolicy::Lfu,
-					1 => CachePolicy::Fifo,
-					2 => CachePolicy::Lru,
-					3 => CachePolicy::Mru,
+					PolicyByte::LFU => CachePolicy::Lfu,
+					PolicyByte::FIFO => CachePolicy::Fifo,
+					PolicyByte::LRU => CachePolicy::Lru,
+					PolicyByte::MRU => CachePolicy::Mru,
 
 					_ => {
 						return Err(StreamError::new(
@@ -97,23 +101,6 @@ impl Command {
 			))
 		}
 	}
-}
-
-impl CommandByte {
-	const PING: u8 = 0;
-	const VERSION: u8 = 1;
-
-	const GET: u8 = 2;
-	const SET: u8 = 3;
-	const DEL: u8 = 4;
-	const PEEK: u8 = 5;
-
-	const WIPE: u8 = 6;
-
-	const RESIZE: u8 = 7;
-	const POLICY: u8 = 8;
-
-	const STATS: u8 = 9;
 }
 
 fn hash(data: &Buffer) -> u32 {
