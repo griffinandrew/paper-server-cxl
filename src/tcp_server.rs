@@ -150,6 +150,20 @@ impl TcpServer {
 						.to_sheet()
 				},
 
+				Command::Peek(key) => {
+					let cache = cache.lock().unwrap();
+
+					let (is_ok, response) = match cache.peek(&key) {
+						Ok(response) => (true, response.into_buf()),
+						Err(err) => (false, err.message().as_bytes().to_vec()),
+					};
+
+					SheetBuilder::new()
+						.write_bool(is_ok)
+						.write_buf(&response)
+						.to_sheet()
+				},
+
 				Command::Wipe => {
 					let mut cache = cache.lock().unwrap();
 
