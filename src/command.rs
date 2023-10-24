@@ -11,6 +11,7 @@ pub enum Command {
 	Get(u32),
 	Set(u32, ServerObject, Option<u32>),
 	Del(u32),
+	Peek(u32),
 
 	Wipe,
 
@@ -20,21 +21,22 @@ pub enum Command {
 	Stats,
 }
 
+struct CommandByte;
+
 impl Command {
 	pub fn from_stream(stream: &mut TcpStream) -> Result<Self, StreamError> {
 		let mut reader = StreamReader::new(stream);
 
 		match reader.read_u8()? {
-			0 => Ok(Command::Ping),
-			1 => Ok(Command::Version),
+			CommandByte::PING => Ok(Command::Ping),
+			CommandByte::VERSION => Ok(Command::Version),
 
-			2 => {
+			CommandByte::GET => {
 				let key = reader.read_buf()?;
-
 				Ok(Command::Get(hash(&key)))
 			},
 
-			3 => {
+			CommandByte::SET => {
 				let key = reader.read_buf()?;
 				let value = reader.read_buf()?;
 
@@ -50,21 +52,24 @@ impl Command {
 				))
 			},
 
-			4 => {
+			CommandByte::DEL => {
 				let key = reader.read_buf()?;
-
 				Ok(Command::Del(hash(&key)))
 			},
 
-			5 => Ok(Command::Wipe),
+			CommandByte::PEEK => {
+				let key = reader.read_buf()?;
+				Ok(Command::Peek(hash(&key)))
+			},
 
-			6 => {
+			CommandByte::WIPE => Ok(Command::Wipe),
+
+			CommandByte::RESIZE => {
 				let size = reader.read_u64()?;
-
 				Ok(Command::Resize(size))
 			},
 
-			7 => {
+			CommandByte::POLICY => {
 				let byte = reader.read_u8()?;
 
 				let policy = match byte {
@@ -84,7 +89,7 @@ impl Command {
 				Ok(Command::Policy(policy))
 			},
 
-			8 => Ok(Command::Stats),
+			CommandByte::STATS => Ok(Command::Stats),
 
 			_ => Err(StreamError::new(
 				ErrorKind::InvalidData,
@@ -92,6 +97,23 @@ impl Command {
 			))
 		}
 	}
+}
+
+impl CommandByte {
+	const PING: u8 = 0;
+	const VERSION: u8 = 1;
+
+	const GET: u8 = 2;
+	const SET: u8 = 3;
+	const DEL: u8 = 4;
+	const PEEK: u8 = 5;
+
+	const WIPE: u8 = 6;
+
+	const RESIZE: u8 = 7;
+	const POLICY: u8 = 8;
+
+	const STATS: u8 = 9;
 }
 
 fn hash(data: &Buffer) -> u32 {
