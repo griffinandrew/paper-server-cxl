@@ -153,14 +153,9 @@ impl TcpServer {
 				Command::Has(key) => {
 					let cache = cache.lock().unwrap();
 
-					let response = match cache.has(&key) {
-						true => b"true".to_vec(),
-						false => b"false".to_vec(),
-					};
-
 					SheetBuilder::new()
 						.write_bool(true)
-						.write_buf(&response)
+						.write_bool(cache.has(&key))
 						.to_sheet()
 				},
 
