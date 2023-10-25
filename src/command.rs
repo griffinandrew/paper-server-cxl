@@ -17,6 +17,8 @@ pub enum Command {
 	Get(u32),
 	Set(u32, ServerObject, Option<u32>),
 	Del(u32),
+
+	Has(u32),
 	Peek(u32),
 
 	Wipe,
@@ -59,6 +61,11 @@ impl Command {
 			CommandByte::DEL => {
 				let key = reader.read_buf()?;
 				Ok(Command::Del(hash(&key)))
+			},
+
+			CommandByte::HAS => {
+				let key = reader.read_buf()?;
+				Ok(Command::Has(hash(&key)))
 			},
 
 			CommandByte::PEEK => {
