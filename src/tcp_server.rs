@@ -4,7 +4,7 @@ use std::{
 		Mutex,
 		atomic::{AtomicUsize, Ordering},
 	},
-	net::TcpListener,
+	net::{TcpListener, Shutdown},
 };
 
 use kwik::ThreadPool;
@@ -68,6 +68,8 @@ impl TcpServer {
 			match stream {
 				Ok(stream) => {
 					if self.num_connections.load(Ordering::Relaxed) == self.max_connections {
+						let _ = stream.shutdown(Shutdown::Both);
+
 						return Err(ServerError::new(
 							ErrorKind::MaxConnectionsExceeded,
 							"The maximum number of connections was exceeded."

@@ -25,27 +25,23 @@ impl TcpConnection {
 	}
 
 	pub fn get_command(&mut self) -> Result<Command, ServerError> {
-		match Command::from_stream(&mut self.stream) {
-			Ok(command) => Ok(command),
-
-			Err(err) if err.kind() == &StreamErrorKind::InvalidStream => Err(ServerError::new(
+		Command::from_stream(&mut self.stream).map_err(|err| match err.kind() {
+			StreamErrorKind::InvalidStream => ServerError::new(
 				ErrorKind::Disconnected,
 				"Disconnected from client."
-			)),
+			),
 
-			Err(err) => Err(ServerError::new(
+			_ => ServerError::new(
 				ErrorKind::InvalidCommand,
 				err.message(),
-			)),
-		}
+			),
+		})
 	}
 
 	pub fn send_response(&mut self, buf: &[u8]) -> Result<(), ServerError> {
-		self.stream.write_all(buf).map_err(|_| {
-			ServerError::new(
-				ErrorKind::InvalidResponse,
-				"Invalid response."
-			)
-		})
+		self.stream.write_all(buf).map_err(|_| ServerError::new(
+			ErrorKind::InvalidResponse,
+			"Invalid response."
+		))
 	}
 }
