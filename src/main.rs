@@ -59,9 +59,6 @@ fn main() {
 	};
 
 	loop {
-		if let Err(err) = server.listen() {
-			println!("\x1B[31mErr\x1B[0m: {}", err.message());
-			continue;
-		}
+		let _ = server.listen();
 	}
 }

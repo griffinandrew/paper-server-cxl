@@ -10,6 +10,8 @@ pub enum ErrorKind {
 	InvalidAddress,
 	InvalidConnection,
 
+	MaxConnectionsExceeded,
+
 	InvalidCommand,
 	InvalidResponse,
 

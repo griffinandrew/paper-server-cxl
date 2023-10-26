@@ -1,5 +1,9 @@
 use std::{
-	sync::{Arc, Mutex},
+	sync::{
+		Arc,
+		Mutex,
+		atomic::{AtomicUsize, Ordering},
+	},
 	net::TcpListener,
 };
 
@@ -27,6 +31,9 @@ pub struct TcpServer {
 	cache: Arc<Mutex<Cache>>,
 
 	pool: ThreadPool,
+
+	max_connections: usize,
+	num_connections: Arc<AtomicUsize>,
 }
 
 impl TcpServer {
@@ -46,7 +53,11 @@ impl TcpServer {
 		let server = TcpServer {
 			listener,
 			cache,
+
 			pool: ThreadPool::new(config.max_connections()),
+
+			max_connections: config.max_connections(),
+			num_connections: Arc::new(AtomicUsize::new(0)),
 		};
 
 		Ok(server)
@@ -56,11 +67,21 @@ impl TcpServer {
 		for stream in self.listener.incoming() {
 			match stream {
 				Ok(stream) => {
+					if self.num_connections.load(Ordering::Relaxed) == self.max_connections {
+						return Err(ServerError::new(
+							ErrorKind::MaxConnectionsExceeded,
+							"The maximum number of connections was exceeded."
+						));
+					}
+
 					let connection = TcpConnection::new(stream);
 					let cache = Arc::clone(&self.cache);
+					let num_connections = Arc::clone(&self.num_connections);
 
-					self.pool.execute(|| {
+					self.pool.execute(move || {
+						num_connections.fetch_add(1, Ordering::Relaxed);
 						TcpServer::handle_connection(connection, cache);
+						num_connections.fetch_sub(1, Ordering::Relaxed);
 					});
 				},
 
