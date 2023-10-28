@@ -1,5 +1,4 @@
 use std::net::TcpStream;
-use fasthash::murmur3;
 use paper_cache::policy::Policy as CachePolicy;
 
 use paper_utils::{
@@ -14,12 +13,12 @@ pub enum Command {
 	Ping,
 	Version,
 
-	Get(u32),
-	Set(u32, ServerObject, Option<u32>),
-	Del(u32),
+	Get(Buffer),
+	Set(Buffer, ServerObject, Option<u32>),
+	Del(Buffer),
 
-	Has(u32),
-	Peek(u32),
+	Has(Buffer),
+	Peek(Buffer),
 
 	Wipe,
 
@@ -39,7 +38,7 @@ impl Command {
 
 			CommandByte::GET => {
 				let key = reader.read_buf()?;
-				Ok(Command::Get(hash(&key)))
+				Ok(Command::Get(key))
 			},
 
 			CommandByte::SET => {
@@ -51,26 +50,22 @@ impl Command {
 					value => Some(value),
 				};
 
-				Ok(Command::Set(
-					hash(&key),
-					ServerObject::new(value),
-					ttl
-				))
+				Ok(Command::Set(key, ServerObject::new(value), ttl))
 			},
 
 			CommandByte::DEL => {
 				let key = reader.read_buf()?;
-				Ok(Command::Del(hash(&key)))
+				Ok(Command::Del(key))
 			},
 
 			CommandByte::HAS => {
 				let key = reader.read_buf()?;
-				Ok(Command::Has(hash(&key)))
+				Ok(Command::Has(key))
 			},
 
 			CommandByte::PEEK => {
 				let key = reader.read_buf()?;
-				Ok(Command::Peek(hash(&key)))
+				Ok(Command::Peek(key))
 			},
 
 			CommandByte::WIPE => Ok(Command::Wipe),
@@ -108,8 +103,4 @@ impl Command {
 			))
 		}
 	}
-}
-
-fn hash(data: &Buffer) -> u32 {
-	murmur3::hash32(data)
 }

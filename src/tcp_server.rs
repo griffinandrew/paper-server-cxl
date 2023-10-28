@@ -10,6 +10,7 @@ use std::{
 use kwik::ThreadPool;
 
 use paper_utils::{
+	stream::Buffer,
 	error::PaperError,
 	sheet::builder::SheetBuilder,
 };
@@ -24,7 +25,7 @@ use crate::{
 	config::Config,
 };
 
-type Cache = PaperCache<u32, ServerObject>;
+type Cache = PaperCache<Buffer, ServerObject>;
 
 pub struct TcpServer {
 	listener: TcpListener,

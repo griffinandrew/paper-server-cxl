@@ -8,7 +8,12 @@ mod server_object;
 
 use std::sync::{Arc, Mutex};
 use clap::Parser;
-use paper_utils::error::PaperError;
+
+use paper_utils::{
+	stream::Buffer,
+	error::PaperError,
+};
+
 use paper_cache::PaperCache;
 
 use crate::{
@@ -38,7 +43,7 @@ fn main() {
 	};
 
 	let cache = Arc::new(Mutex::new(
-		PaperCache::<u32, ServerObject>::new(
+		PaperCache::<Buffer, ServerObject>::new(
 			config.max_size(),
 			Some(config.policies().to_vec()),
 		).unwrap()
