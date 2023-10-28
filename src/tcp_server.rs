@@ -135,43 +135,49 @@ impl TcpServer {
 				Command::Get(key) => {
 					let mut cache = cache.lock().unwrap();
 
-					let (is_ok, response) = match cache.get(&key) {
-						Ok(response) => (true, response.into_buf()),
-						Err(err) => (false, err.message().as_bytes().to_vec()),
-					};
+					match cache.get(&key) {
+						Ok(object) => SheetBuilder::new()
+							.write_bool(true)
+							.write_buf(object.as_buf())
+							.to_sheet(),
 
-					SheetBuilder::new()
-						.write_bool(is_ok)
-						.write_buf(&response)
-						.to_sheet()
+						Err(err) => SheetBuilder::new()
+							.write_bool(false)
+							.write_buf(err.message().as_bytes())
+							.to_sheet(),
+					}
 				},
 
 				Command::Set(key, value, ttl) => {
 					let mut cache = cache.lock().unwrap();
 
-					let (is_ok, response) = match cache.set(key, value, ttl) {
-						Ok(_) => (true, b"done".to_vec()),
-						Err(err) => (false, err.message().as_bytes().to_vec()),
-					};
+					match cache.set(key, value, ttl) {
+						Ok(_) => SheetBuilder::new()
+							.write_bool(true)
+							.write_buf(b"done")
+							.to_sheet(),
 
-					SheetBuilder::new()
-						.write_bool(is_ok)
-						.write_buf(&response)
-						.to_sheet()
+						Err(err) => SheetBuilder::new()
+							.write_bool(false)
+							.write_buf(err.message().as_bytes())
+							.to_sheet(),
+					}
 				},
 
 				Command::Del(key) => {
 					let mut cache = cache.lock().unwrap();
 
-					let (is_ok, response) = match cache.del(&key) {
-						Ok(_) => (true, b"done".to_vec()),
-						Err(err) => (false, err.message().as_bytes().to_vec()),
-					};
+					match cache.del(&key) {
+						Ok(_) => SheetBuilder::new()
+							.write_bool(true)
+							.write_buf(b"done")
+							.to_sheet(),
 
-					SheetBuilder::new()
-						.write_bool(is_ok)
-						.write_buf(&response)
-						.to_sheet()
+						Err(err) => SheetBuilder::new()
+							.write_bool(false)
+							.write_buf(err.message().as_bytes())
+							.to_sheet(),
+					}
 				},
 
 				Command::Has(key) => {
@@ -186,57 +192,65 @@ impl TcpServer {
 				Command::Peek(key) => {
 					let cache = cache.lock().unwrap();
 
-					let (is_ok, response) = match cache.peek(&key) {
-						Ok(response) => (true, response.into_buf()),
-						Err(err) => (false, err.message().as_bytes().to_vec()),
-					};
+					match cache.peek(&key) {
+						Ok(object) => SheetBuilder::new()
+							.write_bool(true)
+							.write_buf(object.as_buf())
+							.to_sheet(),
 
-					SheetBuilder::new()
-						.write_bool(is_ok)
-						.write_buf(&response)
-						.to_sheet()
+						Err(err) => SheetBuilder::new()
+							.write_bool(false)
+							.write_buf(err.message().as_bytes())
+							.to_sheet(),
+					}
 				},
 
 				Command::Wipe => {
 					let mut cache = cache.lock().unwrap();
 
-					let (is_ok, response) = match cache.wipe() {
-						Ok(_) => (true, b"done".to_vec()),
-						Err(err) => (false, err.message().as_bytes().to_vec()),
-					};
+					match cache.wipe() {
+						Ok(_) => SheetBuilder::new()
+							.write_bool(true)
+							.write_buf(b"done")
+							.to_sheet(),
 
-					SheetBuilder::new()
-						.write_bool(is_ok)
-						.write_buf(&response)
-						.to_sheet()
+						Err(err) => SheetBuilder::new()
+							.write_bool(false)
+							.write_buf(err.message().as_bytes())
+							.to_sheet(),
+					}
 				},
 
 				Command::Resize(size) => {
 					let mut cache = cache.lock().unwrap();
 
-					let (is_ok, response) = match cache.resize(size) {
-						Ok(_) => (true, b"done".to_vec()),
-						Err(err) => (false, err.message().as_bytes().to_vec()),
-					};
+					match cache.resize(size) {
+						Ok(_) => SheetBuilder::new()
+							.write_bool(true)
+							.write_buf(b"done")
+							.to_sheet(),
 
-					SheetBuilder::new()
-						.write_bool(is_ok)
-						.write_buf(&response)
-						.to_sheet()
+						Err(err) => SheetBuilder::new()
+							.write_bool(false)
+							.write_buf(err.message().as_bytes())
+							.to_sheet(),
+					}
 				},
 
 				Command::Policy(policy) => {
 					let mut cache = cache.lock().unwrap();
 
-					let (is_ok, response) = match cache.policy(policy) {
-						Ok(_) => (true, b"done".to_vec()),
-						Err(err) => (false, err.message().as_bytes().to_vec()),
-					};
+					match cache.policy(policy) {
+						Ok(_) => SheetBuilder::new()
+							.write_bool(true)
+							.write_buf(b"done")
+							.to_sheet(),
 
-					SheetBuilder::new()
-						.write_bool(is_ok)
-						.write_buf(&response)
-						.to_sheet()
+						Err(err) => SheetBuilder::new()
+							.write_bool(false)
+							.write_buf(err.message().as_bytes())
+							.to_sheet(),
+					}
 				},
 
 				Command::Stats => {

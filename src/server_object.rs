@@ -10,8 +10,8 @@ impl ServerObject {
 		ServerObject(buf)
 	}
 
-	pub fn into_buf(self) -> Buffer {
-		self.0
+	pub fn as_buf(&self) -> &Buffer {
+		&self.0
 	}
 }
 
