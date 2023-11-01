@@ -89,7 +89,7 @@ impl Config {
 		}
 
 		let config_value = match tokens[0] {
-			"host" => Ok(ConfigValue::Host(tokens[1].to_string())),
+			"host" => parse_host(tokens[1]),
 			"port" => parse_port(tokens[1]),
 
 			"max_size" => parse_max_size(tokens[1]),
@@ -121,6 +121,17 @@ impl Config {
 
 		Ok(())
 	}
+}
+
+fn parse_host(value: &str) -> Result<ConfigValue, ServerError> {
+	if value.is_empty() {
+		return Err(ServerError::new(
+			ErrorKind::InvalidConfig,
+			"Invalid host config."
+		));
+	}
+
+	Ok(ConfigValue::Host(value.to_owned()))
 }
 
 fn parse_port(value: &str) -> Result<ConfigValue, ServerError> {

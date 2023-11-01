@@ -8,14 +8,13 @@ use std::{
 };
 
 use kwik::ThreadPool;
+use paper_cache::PaperCache;
 
 use paper_utils::{
 	stream::Buffer,
 	error::PaperError,
 	sheet::builder::SheetBuilder,
 };
-
-use paper_cache::PaperCache;
 
 use crate::{
 	server_error::{ServerError, ErrorKind},
