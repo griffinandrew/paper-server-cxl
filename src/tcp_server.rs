@@ -12,7 +12,6 @@ use paper_cache::PaperCache;
 
 use paper_utils::{
 	stream::Buffer,
-	error::PaperError,
 	sheet::builder::SheetBuilder,
 };
 
@@ -109,7 +108,7 @@ impl TcpServer {
 				},
 
 				Err(err) => {
-					println!("\x1B[31mErr\x1B[0m: {}", err.message());
+					println!("\x1B[31mErr\x1B[0m: {}", err);
 					continue;
 				},
 			};
@@ -142,7 +141,7 @@ impl TcpServer {
 
 						Err(err) => SheetBuilder::new()
 							.write_bool(false)
-							.write_buf(err.message().as_bytes())
+							.write_buf(err.to_string().as_bytes())
 							.to_sheet(),
 					}
 				},
@@ -158,7 +157,7 @@ impl TcpServer {
 
 						Err(err) => SheetBuilder::new()
 							.write_bool(false)
-							.write_buf(err.message().as_bytes())
+							.write_buf(err.to_string().as_bytes())
 							.to_sheet(),
 					}
 				},
@@ -174,7 +173,7 @@ impl TcpServer {
 
 						Err(err) => SheetBuilder::new()
 							.write_bool(false)
-							.write_buf(err.message().as_bytes())
+							.write_buf(err.to_string().as_bytes())
 							.to_sheet(),
 					}
 				},
@@ -199,7 +198,7 @@ impl TcpServer {
 
 						Err(err) => SheetBuilder::new()
 							.write_bool(false)
-							.write_buf(err.message().as_bytes())
+							.write_buf(err.to_string().as_bytes())
 							.to_sheet(),
 					}
 				},
@@ -215,7 +214,7 @@ impl TcpServer {
 
 						Err(err) => SheetBuilder::new()
 							.write_bool(false)
-							.write_buf(err.message().as_bytes())
+							.write_buf(err.to_string().as_bytes())
 							.to_sheet(),
 					}
 				},
@@ -231,7 +230,7 @@ impl TcpServer {
 
 						Err(err) => SheetBuilder::new()
 							.write_bool(false)
-							.write_buf(err.message().as_bytes())
+							.write_buf(err.to_string().as_bytes())
 							.to_sheet(),
 					}
 				},
@@ -247,7 +246,7 @@ impl TcpServer {
 
 						Err(err) => SheetBuilder::new()
 							.write_bool(false)
-							.write_buf(err.message().as_bytes())
+							.write_buf(err.to_string().as_bytes())
 							.to_sheet(),
 					}
 				},
