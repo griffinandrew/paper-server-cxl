@@ -8,12 +8,9 @@ mod server_object;
 
 use std::sync::{Arc, Mutex};
 use clap::Parser;
-
-use paper_utils::{
-	stream::Buffer,
-	error::PaperError,
-};
-
+use log::error;
+use log4rs;
+use paper_utils::stream::Buffer;
 use paper_cache::PaperCache;
 
 use crate::{
@@ -31,13 +28,15 @@ struct Args {
 }
 
 fn main() {
+	log4rs::init_file("log4rs.yaml", Default::default()).unwrap();
+
 	let args = Args::parse();
 
 	let config = match Config::from_file(&args.config) {
 		Ok(config) => config,
 
 		Err(err) => {
-			println!("\x1B[31mErr\x1B[0m: {}", err.message());
+			error!("{err}");
 			return;
 		},
 	};
@@ -51,14 +50,14 @@ fn main() {
 
 	let mut server = match TcpServer::new(&config, cache) {
 		Ok(server) => {
-			println!("{}", ASCII_LOGO);
-			println!("\x1B[36mListening for connections...\x1B[0m");
+			println!("{ASCII_LOGO}");
+			println!("\x1B[36mListening on port {}...\x1B[0m", config.port());
 
 			server
 		},
 
 		Err(err) => {
-			println!("\x1B[31mErr\x1B[0m: {}", err.message());
+			error!("{err}");
 			return;
 		},
 	};

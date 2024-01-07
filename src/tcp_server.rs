@@ -7,6 +7,7 @@ use std::{
 	net::{TcpListener, Shutdown},
 };
 
+use log::{info, warn, error};
 use kwik::ThreadPool;
 use paper_cache::PaperCache;
 
@@ -16,7 +17,7 @@ use paper_utils::{
 };
 
 use crate::{
-	server_error::{ServerError, ErrorKind},
+	server_error::ServerError,
 	server_object::ServerObject,
 	command::Command,
 	tcp_connection::TcpConnection,
@@ -43,10 +44,7 @@ impl TcpServer {
 		let addr = format!("{}:{}", config.host(), config.port());
 
 		let Ok(listener) = TcpListener::bind(addr) else {
-			return Err(ServerError::new(
-				ErrorKind::InvalidAddress,
-				"Could not establish a connection."
-			));
+			return Err(ServerError::InvalidAddress);
 		};
 
 		let server = TcpServer {
@@ -67,13 +65,18 @@ impl TcpServer {
 			match stream {
 				Ok(stream) => {
 					if self.num_connections.load(Ordering::Relaxed) == self.max_connections {
-						let _ = stream.shutdown(Shutdown::Both);
+						warn!("Maximum number of connections exceeded.");
 
-						return Err(ServerError::new(
-							ErrorKind::MaxConnectionsExceeded,
-							"The maximum number of connections was exceeded."
-						));
+						let _ = stream.shutdown(Shutdown::Both);
+						return Err(ServerError::MaxConnectionsExceeded);
 					}
+
+					let address = stream
+						.peer_addr()
+						.map(|address| address.to_string())
+						.unwrap_or("-1".into());
+
+					info!("Connected: {}", address);
 
 					let connection = TcpConnection::new(stream);
 					let cache = Arc::clone(&self.cache);
@@ -82,16 +85,13 @@ impl TcpServer {
 					self.pool.execute(move || {
 						num_connections.fetch_add(1, Ordering::Relaxed);
 						TcpServer::handle_connection(connection, cache);
+
+						info!("Disconnected: {}", address);
 						num_connections.fetch_sub(1, Ordering::Relaxed);
 					});
 				},
 
-				Err(_) => {
-					return Err(ServerError::new(
-						ErrorKind::InvalidConnection,
-						"Could not establish a connection."
-					));
-				}
+				Err(_) => return Err(ServerError::InvalidConnection),
 			}
 		}
 
@@ -102,13 +102,10 @@ impl TcpServer {
 		loop {
 			let command = match connection.get_command() {
 				Ok(command) => command,
-
-				Err(ref err) if err.kind() == &ErrorKind::Disconnected => {
-					return;
-				},
+				Err(ServerError::Disconnected) => return,
 
 				Err(err) => {
-					println!("\x1B[31mErr\x1B[0m: {}", err);
+					error!("{err}");
 					continue;
 				},
 			};
@@ -270,7 +267,7 @@ impl TcpServer {
 			};
 
 			if (connection.send_response(sheet.serialize())).is_err() {
-				println!("Error sending response to command.");
+				error!("Could not send response to command.");
 			}
 		}
 	}

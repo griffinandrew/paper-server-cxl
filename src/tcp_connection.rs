@@ -9,7 +9,7 @@ use paper_utils::{
 };
 
 use crate::{
-	server_error::{ServerError, ErrorKind},
+	server_error::ServerError,
 	command::Command,
 };
 
@@ -26,22 +26,12 @@ impl TcpConnection {
 
 	pub fn get_command(&mut self) -> Result<Command, ServerError> {
 		Command::from_stream(&mut self.stream).map_err(|err| match err.kind() {
-			StreamErrorKind::InvalidStream => ServerError::new(
-				ErrorKind::Disconnected,
-				"Disconnected from client."
-			),
-
-			_ => ServerError::new(
-				ErrorKind::InvalidCommand,
-				err.message(),
-			),
+			StreamErrorKind::InvalidStream => ServerError::Disconnected,
+			_ => ServerError::InvalidCommand(err.message().into()),
 		})
 	}
 
 	pub fn send_response(&mut self, buf: &[u8]) -> Result<(), ServerError> {
-		self.stream.write_all(buf).map_err(|_| ServerError::new(
-			ErrorKind::InvalidResponse,
-			"Invalid response."
-		))
+		self.stream.write_all(buf).map_err(|_| ServerError::InvalidResponse)
 	}
 }

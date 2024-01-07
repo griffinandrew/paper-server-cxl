@@ -1,6 +1,6 @@
 use kwik::text_reader::{FileReader, TextReader};
 use paper_cache::policy::Policy as CachePolicy;
-use crate::server_error::{ServerError, ErrorKind};
+use crate::server_error::ServerError;
 
 pub struct Config {
 	host: String,
@@ -26,13 +26,7 @@ impl Config {
 	pub fn from_file(path: &str) -> Result<Self, ServerError> {
 		let mut reader = match TextReader::new(path) {
 			Ok(reader) => reader,
-
-			Err(_) => {
-				return Err(ServerError::new(
-					ErrorKind::InvalidConfig,
-					"Could not open config file."
-				));
-			},
+			Err(_) => return Err(ServerError::InvalidConfig),
 		};
 
 		let mut config = Config {
@@ -82,10 +76,7 @@ impl Config {
 		let tokens: Vec<&str> = line.split('=').collect();
 
 		if tokens.len() != 2 {
-			return Err(ServerError::new(
-				ErrorKind::InvalidConfig,
-				&format!("Invalid config line <{}>", line)
-			));
+			return Err(ServerError::InvalidConfigLine(line.into()));
 		}
 
 		let config_value = match tokens[0] {
@@ -97,10 +88,7 @@ impl Config {
 
 			"max_connections" => parse_max_connections(tokens[1]),
 
-			_ => Err(ServerError::new(
-				ErrorKind::InvalidConfig,
-				&format!("Invalid config line <{}>", line)
-			)),
+			_ => Err(ServerError::InvalidConfigLine(line.into())),
 		};
 
 		match config_value {
@@ -125,10 +113,7 @@ impl Config {
 
 fn parse_host(value: &str) -> Result<ConfigValue, ServerError> {
 	if value.is_empty() {
-		return Err(ServerError::new(
-			ErrorKind::InvalidConfig,
-			"Invalid host config."
-		));
+		return Err(ServerError::InvalidConfig);
 	}
 
 	Ok(ConfigValue::Host(value.to_owned()))
@@ -137,21 +122,13 @@ fn parse_host(value: &str) -> Result<ConfigValue, ServerError> {
 fn parse_port(value: &str) -> Result<ConfigValue, ServerError> {
 	match value.parse::<u32>() {
 		Ok(value) => Ok(ConfigValue::Port(value)),
-
-		Err(_) => Err(ServerError::new(
-			ErrorKind::InvalidConfig,
-			"Invalid port config."
-		)),
+		Err(_) => Err(ServerError::InvalidConfig),
 	}
 }
 
 fn parse_max_size(value: &str) -> Result<ConfigValue, ServerError> {
 	match value.parse::<u64>() {
-		Ok(0) | Err(_) => Err(ServerError::new(
-			ErrorKind::InvalidConfig,
-			"Invalid max_size config."
-		)),
-
+		Ok(0) | Err(_) => Err(ServerError::InvalidConfigParam("max_size")),
 		Ok(value) => Ok(ConfigValue::MaxSize(value)),
 	}
 }
@@ -160,10 +137,7 @@ fn parse_policies(value: &str) -> Result<ConfigValue, ServerError> {
 	let tokens: Vec<&str> = value.split('|').collect();
 
 	if tokens.is_empty() {
-		return Err(ServerError::new(
-			ErrorKind::InvalidConfig,
-			"Invalid policies config."
-		));
+		return Err(ServerError::InvalidConfigParam("policies"));
 	}
 
 	let mut policies = Vec::<CachePolicy>::new();
@@ -174,13 +148,7 @@ fn parse_policies(value: &str) -> Result<ConfigValue, ServerError> {
 			"fifo" => policies.push(CachePolicy::Fifo),
 			"lru" => policies.push(CachePolicy::Lru),
 			"mru" => policies.push(CachePolicy::Mru),
-
-			_ => {
-				return Err(ServerError::new(
-					ErrorKind::InvalidConfig,
-					&format!("Invalid policy <{}> in config.", token)
-				));
-			},
+			_ => return Err(ServerError::InvalidConfigPolicy(token.into())),
 		}
 	}
 
@@ -189,11 +157,7 @@ fn parse_policies(value: &str) -> Result<ConfigValue, ServerError> {
 
 fn parse_max_connections(value: &str) -> Result<ConfigValue, ServerError> {
 	match value.parse::<usize>() {
-		Ok(0) | Err(_) => Err(ServerError::new(
-			ErrorKind::InvalidConfig,
-			"Invalid max_connections config."
-		)),
-
+		Ok(0) | Err(_) => Err(ServerError::InvalidConfigParam("max_connections")),
 		Ok(value) => Ok(ConfigValue::MaxConnections(value)),
 	}
 }

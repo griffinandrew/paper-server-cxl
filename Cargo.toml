@@ -11,3 +11,6 @@ paper_utils = { git = "ssh://git@github.com/Paper-Book/paper-utils.git", version
 paper_cache = { git = "ssh://git@github.com/Paper-Book/paper-cache.git", version = "0.1.0" }
 byteorder = "1.4.3"
 kwik = { git = "https://github.com/KiaShakiba/kwik-rs.git", version = "0.1.0" }
+thiserror = "1.0.56"
+log4rs = "1.2.0"
+log = "0.4.20"

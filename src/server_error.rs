@@ -1,54 +1,34 @@
-use std::{
-	error::Error,
-	fmt::{Display, Formatter},
-};
+use thiserror::Error;
 
-pub use paper_utils::error::PaperError;
-
-#[derive(PartialEq, Debug)]
-pub enum ErrorKind {
+#[derive(Debug, PartialEq, Error)]
+pub enum ServerError {
+	#[error("Could not establish a connection.")]
 	InvalidAddress,
+
+	#[error("Could not establish a connection.")]
 	InvalidConnection,
 
+	#[error("The maximum number of connections was exceeded.")]
 	MaxConnectionsExceeded,
 
-	InvalidCommand,
+	#[error("{0}")]
+	InvalidCommand(String),
+
+	#[error("Invalid response.")]
 	InvalidResponse,
 
+	#[error("Disconnected from client.")]
 	Disconnected,
 
+	#[error("Could not open config file.")]
 	InvalidConfig,
-}
 
-#[derive(Debug)]
-pub struct ServerError {
-	kind: ErrorKind,
-	message: String,
-}
+	#[error("Invalid config line <{0}>.")]
+	InvalidConfigLine(String),
 
-impl ServerError {
-	pub fn new(kind: ErrorKind, message: &str) -> Self {
-		ServerError {
-			kind,
-			message: message.to_owned(),
-		}
-	}
+	#[error("Invalid {0} config.")]
+	InvalidConfigParam(&'static str),
 
-	pub fn kind(&self) -> &ErrorKind {
-		&self.kind
-	}
-}
-
-impl PaperError for ServerError {
-	fn message(&self) -> &str {
-		&self.message
-	}
-}
-
-impl Error for ServerError {}
-
-impl Display for ServerError {
-	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		write!(f, "{}", self.message)
-	}
+	#[error("Invalid policy <{0}> in config.")]
+	InvalidConfigPolicy(String),
 }
