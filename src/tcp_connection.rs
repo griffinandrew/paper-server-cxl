@@ -3,10 +3,7 @@ use std::{
 	net::TcpStream,
 };
 
-use paper_utils::{
-	error::PaperError,
-	stream::ErrorKind as StreamErrorKind,
-};
+use paper_utils::stream::StreamError;
 
 use crate::{
 	server_error::ServerError,
@@ -25,9 +22,9 @@ impl TcpConnection {
 	}
 
 	pub fn get_command(&mut self) -> Result<Command, ServerError> {
-		Command::from_stream(&mut self.stream).map_err(|err| match err.kind() {
-			StreamErrorKind::InvalidStream => ServerError::Disconnected,
-			_ => ServerError::InvalidCommand(err.message().into()),
+		Command::from_stream(&mut self.stream).map_err(|err| match err {
+			StreamError::InvalidStream => ServerError::Disconnected,
+			_ => ServerError::InvalidCommand(err.to_string()),
 		})
 	}
 

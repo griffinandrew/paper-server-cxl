@@ -2,7 +2,7 @@ use std::net::TcpStream;
 use paper_cache::policy::Policy as CachePolicy;
 
 use paper_utils::{
-	stream::{Buffer, StreamReader, StreamError, ErrorKind},
+	stream::{Buffer, StreamReader, StreamError},
 	command::CommandByte,
 	policy::PolicyByte,
 };
@@ -84,12 +84,7 @@ impl Command {
 					PolicyByte::LRU => CachePolicy::Lru,
 					PolicyByte::MRU => CachePolicy::Mru,
 
-					_ => {
-						return Err(StreamError::new(
-							ErrorKind::InvalidData,
-							"Invalid policy."
-						))
-					},
+					_ => return Err(StreamError::InvalidData),
 				};
 
 				Ok(Command::Policy(policy))
@@ -97,10 +92,7 @@ impl Command {
 
 			CommandByte::STATS => Ok(Command::Stats),
 
-			_ => Err(StreamError::new(
-				ErrorKind::InvalidData,
-				"Invalid command."
-			))
+			_ => Err(StreamError::InvalidData),
 		}
 	}
 }

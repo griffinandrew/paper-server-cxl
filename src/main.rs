@@ -9,7 +9,6 @@ mod server_object;
 use std::sync::{Arc, Mutex};
 use clap::Parser;
 use log::error;
-use log4rs;
 use paper_utils::stream::Buffer;
 use paper_cache::PaperCache;
 
