@@ -23,7 +23,9 @@ impl TcpConnection {
 
 	pub fn get_command(&mut self) -> Result<Command, ServerError> {
 		Command::from_stream(&mut self.stream).map_err(|err| match err {
-			StreamError::InvalidStream => ServerError::Disconnected,
+			StreamError::InvalidStream | StreamError::ClosedStream
+				=> ServerError::Disconnected,
+
 			_ => ServerError::InvalidCommand(err.to_string()),
 		})
 	}
