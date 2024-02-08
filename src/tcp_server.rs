@@ -9,11 +9,12 @@ use std::{
 
 use log::{info, warn, error};
 use kwik::ThreadPool;
-use paper_cache::PaperCache;
+use paper_cache::{PaperCache, Policy};
 
 use paper_utils::{
 	stream::Buffer,
 	sheet::builder::SheetBuilder,
+	policy::PolicyByte,
 };
 
 use crate::{
@@ -252,6 +253,13 @@ impl TcpServer {
 					let cache = cache.lock().unwrap();
 					let stats = cache.stats();
 
+					let policy_byte = match stats.get_policy() {
+						Policy::Lfu => PolicyByte::LFU,
+						Policy::Fifo => PolicyByte::FIFO,
+						Policy::Lru => PolicyByte::LRU,
+						Policy::Mru => PolicyByte::MRU,
+					};
+
 					SheetBuilder::new()
 						.write_bool(true)
 						.write_u64(stats.get_max_size())
@@ -260,7 +268,7 @@ impl TcpServer {
 						.write_u64(stats.get_total_sets())
 						.write_u64(stats.get_total_dels())
 						.write_f64(stats.get_miss_ratio())
-						.write_u8(stats.get_policy().index() as u8)
+						.write_u8(policy_byte)
 						.write_u64(stats.get_uptime())
 						.to_sheet()
 				},
