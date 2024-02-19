@@ -24,7 +24,7 @@ enum ConfigValue {
 
 impl Config {
 	pub fn from_file(path: &str) -> Result<Self, ServerError> {
-		let mut reader = match TextReader::new(path) {
+		let reader = match TextReader::new(path) {
 			Ok(reader) => reader,
 			Err(_) => return Err(ServerError::InvalidConfig),
 		};
@@ -39,14 +39,13 @@ impl Config {
 			max_connections: 0,
 		};
 
-		while let Some(line) = reader.read_line() {
-			let trimmed_line = line.trim();
+		let file_iter = reader
+			.into_iter()
+			.map(|line| line.trim().to_owned())
+			.filter(|line| !line.is_empty() && !line.starts_with('#'));
 
-			if trimmed_line.is_empty() || trimmed_line.starts_with('#') {
-				continue;
-			}
-
-			Config::parse_line(&mut config, line)?;
+		for line in file_iter {
+			Config::parse_line(&mut config, &line)?;
 		}
 
 		Ok(config)
@@ -72,7 +71,7 @@ impl Config {
 		self.max_connections
 	}
 
-	fn parse_line(config: &mut Config, line: &String) -> Result<(), ServerError> {
+	fn parse_line(config: &mut Config, line: &str) -> Result<(), ServerError> {
 		let tokens: Vec<&str> = line.split('=').collect();
 
 		if tokens.len() != 2 {
@@ -102,9 +101,7 @@ impl Config {
 				ConfigValue::MaxConnections(max_connections) => config.max_connections = max_connections,
 			},
 
-			Err(err) => {
-				return Err(err);
-			},
+			Err(err) => return Err(err),
 		}
 
 		Ok(())
