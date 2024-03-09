@@ -11,7 +11,7 @@ use log::error;
 use paper_cache::PaperCache;
 
 use crate::{
-	tcp_server::TcpServer,
+	tcp_server::{TcpServer, NoHasher},
 	logo::ASCII_LOGO,
 	config::Config,
 	server_object::ServerObject,
@@ -38,9 +38,10 @@ fn main() {
 		},
 	};
 
-	let cache = PaperCache::<u64, ServerObject>::new(
+	let cache = PaperCache::<u64, ServerObject, NoHasher>::with_hasher(
 		config.max_size(),
 		config.policies(),
+		NoHasher::default(),
 	).expect("Could not configure cache.");
 
 	let mut server = match TcpServer::new(&config, cache) {

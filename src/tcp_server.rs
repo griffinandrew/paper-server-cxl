@@ -3,11 +3,12 @@ use std::{
 		Arc,
 		atomic::{AtomicUsize, Ordering},
 	},
-	hash::{DefaultHasher, Hash, Hasher},
+	hash::{DefaultHasher, Hash, Hasher, BuildHasherDefault},
 	net::{TcpListener, Shutdown},
 };
 
 use log::{info, warn, error};
+use nohash_hasher::NoHashHasher;
 use kwik::ThreadPool;
 use paper_cache::{PaperCache, Policy};
 
@@ -25,7 +26,8 @@ use crate::{
 	config::Config,
 };
 
-type Cache = PaperCache<u64, ServerObject>;
+pub type NoHasher = BuildHasherDefault<NoHashHasher<u64>>;
+type Cache = PaperCache<u64, ServerObject, NoHasher>;
 
 pub struct TcpServer {
 	listener: TcpListener,
@@ -127,7 +129,9 @@ impl TcpServer {
 				},
 
 				Command::Get(key) => {
-					match cache.get(hash(key)) {
+					let key = hash(key);
+
+					match cache.get(key) {
 						Ok(object) => SheetBuilder::new()
 							.write_bool(true)
 							.write_buf(object.as_buf())
@@ -141,7 +145,9 @@ impl TcpServer {
 				},
 
 				Command::Set(key, value, ttl) => {
-					match cache.set(hash(key), value, ttl) {
+					let key = hash(key);
+
+					match cache.set(key, value, ttl) {
 						Ok(_) => SheetBuilder::new()
 							.write_bool(true)
 							.write_buf(b"done")
@@ -155,7 +161,9 @@ impl TcpServer {
 				},
 
 				Command::Del(key) => {
-					match cache.del(hash(key)) {
+					let key = hash(key);
+
+					match cache.del(key) {
 						Ok(_) => SheetBuilder::new()
 							.write_bool(true)
 							.write_buf(b"done")
@@ -169,14 +177,18 @@ impl TcpServer {
 				},
 
 				Command::Has(key) => {
+					let key = hash(key);
+
 					SheetBuilder::new()
 						.write_bool(true)
-						.write_bool(cache.has(hash(key)))
+						.write_bool(cache.has(key))
 						.to_sheet()
 				},
 
 				Command::Peek(key) => {
-					match cache.peek(hash(key)) {
+					let key = hash(key);
+
+					match cache.peek(key) {
 						Ok(object) => SheetBuilder::new()
 							.write_bool(true)
 							.write_buf(object.as_buf())
