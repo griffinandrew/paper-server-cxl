@@ -6,10 +6,8 @@ mod tcp_connection;
 mod config;
 mod server_object;
 
-use std::sync::{Arc, Mutex};
 use clap::Parser;
 use log::error;
-use paper_utils::stream::Buffer;
 use paper_cache::PaperCache;
 
 use crate::{
@@ -40,12 +38,10 @@ fn main() {
 		},
 	};
 
-	let cache = Arc::new(Mutex::new(
-		PaperCache::<Buffer, ServerObject>::new(
-			config.max_size(),
-			Some(config.policies().to_vec()),
-		).unwrap()
-	));
+	let cache = PaperCache::<u64, ServerObject>::new(
+		config.max_size(),
+		config.policies(),
+	).expect("Could not configure cache.");
 
 	let mut server = match TcpServer::new(&config, cache) {
 		Ok(server) => {

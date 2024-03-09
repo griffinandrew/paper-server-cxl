@@ -63,7 +63,7 @@ impl Config {
 		self.max_size
 	}
 
-	pub fn policies(&self) -> &Vec<CachePolicy> {
+	pub fn policies(&self) -> &[CachePolicy] {
 		&self.policies
 	}
 

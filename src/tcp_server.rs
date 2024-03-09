@@ -1,9 +1,9 @@
 use std::{
 	sync::{
 		Arc,
-		Mutex,
 		atomic::{AtomicUsize, Ordering},
 	},
+	hash::{DefaultHasher, Hash, Hasher},
 	net::{TcpListener, Shutdown},
 };
 
@@ -25,11 +25,11 @@ use crate::{
 	config::Config,
 };
 
-type Cache = PaperCache<Buffer, ServerObject>;
+type Cache = PaperCache<u64, ServerObject>;
 
 pub struct TcpServer {
 	listener: TcpListener,
-	cache: Arc<Mutex<Cache>>,
+	cache: Arc<Cache>,
 
 	pool: ThreadPool,
 
@@ -40,7 +40,7 @@ pub struct TcpServer {
 impl TcpServer {
 	pub fn new(
 		config: &Config,
-		cache: Arc<Mutex<Cache>>,
+		cache: Cache,
 	) -> Result<Self, ServerError> {
 		let addr = format!("{}:{}", config.host(), config.port());
 
@@ -50,7 +50,7 @@ impl TcpServer {
 
 		let server = TcpServer {
 			listener,
-			cache,
+			cache: Arc::new(cache),
 
 			pool: ThreadPool::new(config.max_connections()),
 
@@ -80,7 +80,7 @@ impl TcpServer {
 					info!("Connected: {}", address);
 
 					let connection = TcpConnection::new(stream);
-					let cache = Arc::clone(&self.cache);
+					let cache = self.cache.clone();
 					let num_connections = Arc::clone(&self.num_connections);
 
 					self.pool.execute(move || {
@@ -99,7 +99,7 @@ impl TcpServer {
 		Ok(())
 	}
 
-	fn handle_connection(mut connection: TcpConnection, cache: Arc<Mutex<Cache>>) {
+	fn handle_connection(mut connection: TcpConnection, cache: Arc<Cache>) {
 		loop {
 			let command = match connection.get_command() {
 				Ok(command) => command,
@@ -120,8 +120,6 @@ impl TcpServer {
 				},
 
 				Command::Version => {
-					let cache = cache.lock().unwrap();
-
 					SheetBuilder::new()
 						.write_bool(true)
 						.write_str(&cache.version())
@@ -129,9 +127,7 @@ impl TcpServer {
 				},
 
 				Command::Get(key) => {
-					let mut cache = cache.lock().unwrap();
-
-					match cache.get(&key) {
+					match cache.get(hash(key)) {
 						Ok(object) => SheetBuilder::new()
 							.write_bool(true)
 							.write_buf(object.as_buf())
@@ -145,9 +141,7 @@ impl TcpServer {
 				},
 
 				Command::Set(key, value, ttl) => {
-					let mut cache = cache.lock().unwrap();
-
-					match cache.set(key, value, ttl) {
+					match cache.set(hash(key), value, ttl) {
 						Ok(_) => SheetBuilder::new()
 							.write_bool(true)
 							.write_buf(b"done")
@@ -161,9 +155,7 @@ impl TcpServer {
 				},
 
 				Command::Del(key) => {
-					let mut cache = cache.lock().unwrap();
-
-					match cache.del(&key) {
+					match cache.del(hash(key)) {
 						Ok(_) => SheetBuilder::new()
 							.write_bool(true)
 							.write_buf(b"done")
@@ -177,18 +169,14 @@ impl TcpServer {
 				},
 
 				Command::Has(key) => {
-					let cache = cache.lock().unwrap();
-
 					SheetBuilder::new()
 						.write_bool(true)
-						.write_bool(cache.has(&key))
+						.write_bool(cache.has(hash(key)))
 						.to_sheet()
 				},
 
 				Command::Peek(key) => {
-					let cache = cache.lock().unwrap();
-
-					match cache.peek(&key) {
+					match cache.peek(hash(key)) {
 						Ok(object) => SheetBuilder::new()
 							.write_bool(true)
 							.write_buf(object.as_buf())
@@ -202,8 +190,6 @@ impl TcpServer {
 				},
 
 				Command::Wipe => {
-					let mut cache = cache.lock().unwrap();
-
 					match cache.wipe() {
 						Ok(_) => SheetBuilder::new()
 							.write_bool(true)
@@ -218,8 +204,6 @@ impl TcpServer {
 				},
 
 				Command::Resize(size) => {
-					let mut cache = cache.lock().unwrap();
-
 					match cache.resize(size) {
 						Ok(_) => SheetBuilder::new()
 							.write_bool(true)
@@ -234,8 +218,6 @@ impl TcpServer {
 				},
 
 				Command::Policy(policy) => {
-					let mut cache = cache.lock().unwrap();
-
 					match cache.policy(policy) {
 						Ok(_) => SheetBuilder::new()
 							.write_bool(true)
@@ -250,27 +232,33 @@ impl TcpServer {
 				},
 
 				Command::Stats => {
-					let cache = cache.lock().unwrap();
-					let stats = cache.stats();
+					match cache.stats() {
+						Ok(stats) => {
+							let policy_byte = match stats.get_policy() {
+								Policy::Lfu => PolicyByte::LFU,
+								Policy::Fifo => PolicyByte::FIFO,
+								Policy::Lru => PolicyByte::LRU,
+								Policy::Mru => PolicyByte::MRU,
+							};
 
-					let policy_byte = match stats.get_policy() {
-						Policy::Lfu => PolicyByte::LFU,
-						Policy::Fifo => PolicyByte::FIFO,
-						Policy::Lru => PolicyByte::LRU,
-						Policy::Mru => PolicyByte::MRU,
-					};
+							SheetBuilder::new()
+								.write_bool(true)
+								.write_u64(stats.get_max_size())
+								.write_u64(stats.get_used_size())
+								.write_u64(stats.get_total_gets())
+								.write_u64(stats.get_total_sets())
+								.write_u64(stats.get_total_dels())
+								.write_f64(stats.get_miss_ratio())
+								.write_u8(policy_byte)
+								.write_u64(stats.get_uptime())
+								.to_sheet()
+							},
 
-					SheetBuilder::new()
-						.write_bool(true)
-						.write_u64(stats.get_max_size())
-						.write_u64(stats.get_used_size())
-						.write_u64(stats.get_total_gets())
-						.write_u64(stats.get_total_sets())
-						.write_u64(stats.get_total_dels())
-						.write_f64(stats.get_miss_ratio())
-						.write_u8(policy_byte)
-						.write_u64(stats.get_uptime())
-						.to_sheet()
+						Err(err) => SheetBuilder::new()
+							.write_bool(false)
+							.write_buf(err.to_string().as_bytes())
+							.to_sheet(),
+					}
 				},
 			};
 
@@ -279,4 +267,10 @@ impl TcpServer {
 			}
 		}
 	}
+}
+
+fn hash(key: Buffer) -> u64 {
+	let mut s = DefaultHasher::new();
+	key.hash(&mut s);
+	s.finish()
 }
