@@ -1,3 +1,4 @@
+use parse_size::parse_size;
 use kwik::text_reader::{FileReader, TextReader};
 use paper_cache::policy::Policy as CachePolicy;
 use crate::server_error::ServerError;
@@ -124,7 +125,7 @@ fn parse_port(value: &str) -> Result<ConfigValue, ServerError> {
 }
 
 fn parse_max_size(value: &str) -> Result<ConfigValue, ServerError> {
-	match value.parse::<u64>() {
+	match parse_size(value) {
 		Ok(0) | Err(_) => Err(ServerError::InvalidConfigParam("max_size")),
 		Ok(value) => Ok(ConfigValue::MaxSize(value)),
 	}
