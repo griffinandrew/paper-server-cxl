@@ -1,4 +1,3 @@
-use kwik::mem;
 use paper_utils::stream::Buffer;
 use paper_cache::ObjectMemSize;
 
@@ -17,6 +16,6 @@ impl ServerObject {
 
 impl ObjectMemSize for ServerObject {
 	fn mem_size(&self) -> usize {
-		mem::size_of_vec(&self.0)
+		self.0.len()
 	}
 }
