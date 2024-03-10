@@ -201,6 +201,22 @@ impl TcpServer {
 					}
 				},
 
+				Command::Ttl(key, ttl) => {
+					let key = hash(key);
+
+					match cache.ttl(key, ttl) {
+						Ok(_) => SheetBuilder::new()
+							.write_bool(true)
+							.write_buf(b"done")
+							.to_sheet(),
+
+						Err(err) => SheetBuilder::new()
+							.write_bool(false)
+							.write_buf(err.to_string().as_bytes())
+							.to_sheet(),
+					}
+				},
+
 				Command::Wipe => {
 					match cache.wipe() {
 						Ok(_) => SheetBuilder::new()
