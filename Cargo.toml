@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.2.7", features = ["derive"] }
 paper_utils = { git = "ssh://git@github.com/Paper-Book/paper-utils.git", version = "0.1.0" }
-paper_cache = { git = "ssh://git@github.com/Paper-Book/paper-cache.git", version = "1.0.5" }
+paper_cache = { git = "ssh://git@github.com/Paper-Book/paper-cache.git", version = "1.0.6" }
 byteorder = "1.4.3"
 kwik = { git = "https://github.com/KiaShakiba/kwik-rs.git", version = "0.1.0" }
 thiserror = "1.0.56"
