@@ -260,33 +260,26 @@ impl TcpServer {
 				},
 
 				Command::Stats => {
-					match cache.stats() {
-						Ok(stats) => {
-							let policy_byte = match stats.get_policy() {
-								Policy::Lfu => PolicyByte::LFU,
-								Policy::Fifo => PolicyByte::FIFO,
-								Policy::Lru => PolicyByte::LRU,
-								Policy::Mru => PolicyByte::MRU,
-							};
+					let stats = cache.stats();
 
-							SheetBuilder::new()
-								.write_bool(true)
-								.write_u64(stats.get_max_size())
-								.write_u64(stats.get_used_size())
-								.write_u64(stats.get_total_gets())
-								.write_u64(stats.get_total_sets())
-								.write_u64(stats.get_total_dels())
-								.write_f64(stats.get_miss_ratio())
-								.write_u8(policy_byte)
-								.write_u64(stats.get_uptime())
-								.to_sheet()
-							},
+					let policy_byte = match stats.get_policy() {
+						Policy::Lfu => PolicyByte::LFU,
+						Policy::Fifo => PolicyByte::FIFO,
+						Policy::Lru => PolicyByte::LRU,
+						Policy::Mru => PolicyByte::MRU,
+					};
 
-						Err(err) => SheetBuilder::new()
-							.write_bool(false)
-							.write_buf(err.to_string().as_bytes())
-							.to_sheet(),
-					}
+					SheetBuilder::new()
+						.write_bool(true)
+						.write_u64(stats.get_max_size())
+						.write_u64(stats.get_used_size())
+						.write_u64(stats.get_total_gets())
+						.write_u64(stats.get_total_sets())
+						.write_u64(stats.get_total_dels())
+						.write_f64(stats.get_miss_ratio())
+						.write_u8(policy_byte)
+						.write_u64(stats.get_uptime())
+						.to_sheet()
 				},
 			};
 
