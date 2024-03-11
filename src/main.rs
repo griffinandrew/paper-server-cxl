@@ -25,7 +25,7 @@ struct Args {
 }
 
 fn main() {
-	log4rs::init_file("log4rs.yaml", Default::default()).unwrap();
+	init_logging();
 
 	let args = Args::parse();
 
@@ -61,4 +61,12 @@ fn main() {
 	loop {
 		let _ = server.listen();
 	}
+}
+
+fn init_logging() {
+	let config_str = std::include_str!("../log4rs.yaml");
+	let config = serde_yaml::from_str::<log4rs::config::RawConfig>(config_str)
+		.expect("Invalid log config.");
+
+	log4rs::init_raw_config(config).unwrap();
 }
