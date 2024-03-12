@@ -1,5 +1,5 @@
 use paper_utils::stream::Buffer;
-use paper_cache::ObjectMemSize;
+use paper_cache::{ObjectMemSize, ObjectSize};
 
 #[derive(Clone)]
 pub struct ServerObject(Buffer);
@@ -15,7 +15,7 @@ impl ServerObject {
 }
 
 impl ObjectMemSize for ServerObject {
-	fn mem_size(&self) -> usize {
-		self.0.len()
+	fn mem_size(&self) -> ObjectSize {
+		self.0.len() as ObjectSize
 	}
 }

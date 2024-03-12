@@ -20,6 +20,7 @@ pub enum Command {
 	Has(Buffer),
 	Peek(Buffer),
 	Ttl(Buffer, Option<u32>),
+	Size(Buffer),
 
 	Wipe,
 
@@ -78,6 +79,11 @@ impl Command {
 				};
 
 				Ok(Command::Ttl(key, ttl))
+			},
+
+			CommandByte::SIZE => {
+				let key = reader.read_buf()?;
+				Ok(Command::Size(key))
 			},
 
 			CommandByte::WIPE => Ok(Command::Wipe),
