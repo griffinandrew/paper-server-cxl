@@ -1,10 +1,22 @@
-pub const ASCII_LOGO: &str = r"
+use std::process;
+
+const ASCII_LOGO: &str = r"
       _____
      |  __ \
-     | |__) |_ _ _ __   ___ _ __
-     |  ___/ _` | '_ \ / _ \ '__|
-     | |  | (_| | |_) |  __/ |
+     | |__) |_ _ _ __   ___ _ __     PaperCache v<VERSION>
+     |  ___/ _` | '_ \ / _ \ '__|    PORT: <PORT>
+     | |  | (_| | |_) |  __/ |       PID:  <PID>
      |_|   \__,_| .__/ \___|_|
                 | |
                 |_|
+
 ";
+
+pub fn print(version: &str, port: u32) {
+	let logo = ASCII_LOGO
+		.replace("<VERSION>", version)
+		.replace("<PORT>", &port.to_string())
+		.replace("<PID>", &process::id().to_string());
+
+	println!("{logo}");
+}

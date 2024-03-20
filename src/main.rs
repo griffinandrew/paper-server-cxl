@@ -12,7 +12,6 @@ use paper_cache::PaperCache;
 
 use crate::{
 	tcp_server::{TcpServer, NoHasher},
-	logo::ASCII_LOGO,
 	config::Config,
 	server_object::ServerObject,
 };
@@ -44,11 +43,11 @@ fn main() {
 		NoHasher::default(),
 	).expect("Could not configure cache.");
 
+	let cache_version = cache.version();
+
 	let mut server = match TcpServer::new(&config, cache) {
 		Ok(server) => {
-			println!("{ASCII_LOGO}");
-			println!("\x1B[36mListening on port {}...\x1B[0m", config.port());
-
+			logo::print(&cache_version, config.port());
 			server
 		},
 
