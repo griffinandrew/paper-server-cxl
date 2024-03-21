@@ -12,13 +12,40 @@ use crate::{
 
 pub struct TcpConnection {
 	stream: TcpStream,
+
+	auth: Option<String>,
+	is_authorized: bool,
 }
 
 impl TcpConnection {
-	pub fn new(stream: TcpStream) -> Self {
+	pub fn new(
+		stream: TcpStream,
+		auth: Option<String>,
+	) -> Self {
+		let is_authorized = auth.is_none();
+
 		TcpConnection {
 			stream,
+
+			auth,
+			is_authorized,
 		}
+	}
+
+	pub fn is_authorized(&self) -> bool {
+		self.is_authorized
+	}
+
+	pub fn authorize(&mut self, value: &str) -> bool {
+		if self.is_authorized {
+			return true;
+		}
+
+		self.is_authorized = self.auth
+			.as_ref()
+			.is_some_and(|token| token == value);
+
+		self.is_authorized
 	}
 
 	pub fn get_command(&mut self) -> Result<Command, ServerError> {

@@ -13,6 +13,8 @@ pub enum Command {
 	Ping,
 	Version,
 
+	Auth(Buffer),
+
 	Get(Buffer),
 	Set(Buffer, ServerObject, Option<u32>),
 	Del(Buffer),
@@ -37,6 +39,11 @@ impl Command {
 		match reader.read_u8()? {
 			CommandByte::PING => Ok(Command::Ping),
 			CommandByte::VERSION => Ok(Command::Version),
+
+			CommandByte::AUTH => {
+				let token = reader.read_buf()?;
+				Ok(Command::Auth(token))
+			},
 
 			CommandByte::GET => {
 				let key = reader.read_buf()?;

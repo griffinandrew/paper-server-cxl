@@ -3,6 +3,7 @@ use kwik::text_reader::{FileReader, TextReader};
 use paper_cache::policy::Policy as CachePolicy;
 use crate::server_error::ServerError;
 
+#[derive(Debug)]
 pub struct Config {
 	host: String,
 	port: u32,
@@ -11,6 +12,7 @@ pub struct Config {
 	policies: Vec<CachePolicy>,
 
 	max_connections: usize,
+	auth: Option<String>,
 }
 
 enum ConfigValue {
@@ -21,6 +23,7 @@ enum ConfigValue {
 	Policies(Vec<CachePolicy>),
 
 	MaxConnections(usize),
+	Auth(String),
 }
 
 impl Config {
@@ -38,6 +41,7 @@ impl Config {
 			policies: Vec::new(),
 
 			max_connections: 0,
+			auth: None,
 		};
 
 		let file_iter = reader
@@ -72,6 +76,10 @@ impl Config {
 		self.max_connections
 	}
 
+	pub fn auth(&self) -> Option<&str> {
+		self.auth.as_deref()
+	}
+
 	fn parse_line(config: &mut Config, line: &str) -> Result<(), ServerError> {
 		let tokens: Vec<&str> = line.split('=').collect();
 
@@ -87,6 +95,7 @@ impl Config {
 			"policies" => parse_policies(tokens[1]),
 
 			"max_connections" => parse_max_connections(tokens[1]),
+			"auth" => parse_auth(tokens[1]),
 
 			_ => Err(ServerError::InvalidConfigLine(line.into())),
 		};
@@ -100,6 +109,7 @@ impl Config {
 				ConfigValue::Policies(policies) => config.policies = policies,
 
 				ConfigValue::MaxConnections(max_connections) => config.max_connections = max_connections,
+				ConfigValue::Auth(token) => config.auth = Some(token),
 			},
 
 			Err(err) => return Err(err),
@@ -158,4 +168,12 @@ fn parse_max_connections(value: &str) -> Result<ConfigValue, ServerError> {
 		Ok(0) | Err(_) => Err(ServerError::InvalidConfigParam("max_connections")),
 		Ok(value) => Ok(ConfigValue::MaxConnections(value)),
 	}
+}
+
+fn parse_auth(value: &str) -> Result<ConfigValue, ServerError> {
+	if value.is_empty() {
+		return Err(ServerError::InvalidConfig);
+	}
+
+	Ok(ConfigValue::Auth(value.to_owned()))
 }

@@ -37,6 +37,7 @@ pub struct TcpServer {
 
 	max_connections: usize,
 	num_connections: Arc<AtomicUsize>,
+	auth: Option<String>,
 }
 
 impl TcpServer {
@@ -58,6 +59,7 @@ impl TcpServer {
 
 			max_connections: config.max_connections(),
 			num_connections: Arc::new(AtomicUsize::new(0)),
+			auth: config.auth().map(|auth| auth.to_owned()),
 		};
 
 		Ok(server)
@@ -81,7 +83,7 @@ impl TcpServer {
 
 					info!("Connected: {}", address);
 
-					let connection = TcpConnection::new(stream);
+					let connection = TcpConnection::new(stream, self.auth.clone());
 					let cache = self.cache.clone();
 					let num_connections = Arc::clone(&self.num_connections);
 
@@ -113,22 +115,39 @@ impl TcpServer {
 				},
 			};
 
-			let sheet = match command {
-				Command::Ping => {
+			let sheet = match (connection.is_authorized(), command) {
+				(_, Command::Ping) => {
 					SheetBuilder::new()
 						.write_bool(true)
 						.write_buf(b"pong")
 						.to_sheet()
 				},
 
-				Command::Version => {
+				(_, Command::Version) => {
 					SheetBuilder::new()
 						.write_bool(true)
 						.write_str(&cache.version())
 						.to_sheet()
 				},
 
-				Command::Get(key) => {
+				(_, Command::Auth(auth)) => {
+					let is_authorized = String::from_utf8(auth.to_vec())
+						.is_ok_and(|token| connection.authorize(&token));
+
+					match is_authorized {
+						true => SheetBuilder::new()
+							.write_bool(true)
+							.write_buf(b"done")
+							.to_sheet(),
+
+						false => SheetBuilder::new()
+							.write_bool(false)
+							.write_buf(b"unauthorized")
+							.to_sheet(),
+					}
+				},
+
+				(true, Command::Get(key)) => {
 					let key = hash(key);
 
 					match cache.get(key) {
@@ -144,7 +163,7 @@ impl TcpServer {
 					}
 				},
 
-				Command::Set(key, value, ttl) => {
+				(true, Command::Set(key, value, ttl)) => {
 					let key = hash(key);
 
 					match cache.set(key, value, ttl) {
@@ -160,7 +179,7 @@ impl TcpServer {
 					}
 				},
 
-				Command::Del(key) => {
+				(true, Command::Del(key)) => {
 					let key = hash(key);
 
 					match cache.del(key) {
@@ -176,7 +195,7 @@ impl TcpServer {
 					}
 				},
 
-				Command::Has(key) => {
+				(true, Command::Has(key)) => {
 					let key = hash(key);
 
 					SheetBuilder::new()
@@ -185,7 +204,7 @@ impl TcpServer {
 						.to_sheet()
 				},
 
-				Command::Peek(key) => {
+				(true, Command::Peek(key)) => {
 					let key = hash(key);
 
 					match cache.peek(key) {
@@ -201,7 +220,7 @@ impl TcpServer {
 					}
 				},
 
-				Command::Ttl(key, ttl) => {
+				(true, Command::Ttl(key, ttl)) => {
 					let key = hash(key);
 
 					match cache.ttl(key, ttl) {
@@ -217,7 +236,7 @@ impl TcpServer {
 					}
 				},
 
-				Command::Size(key) => {
+				(true, Command::Size(key)) => {
 					let key = hash(key);
 
 					match cache.size(key) {
@@ -233,7 +252,7 @@ impl TcpServer {
 					}
 				},
 
-				Command::Wipe => {
+				(true, Command::Wipe) => {
 					match cache.wipe() {
 						Ok(_) => SheetBuilder::new()
 							.write_bool(true)
@@ -247,7 +266,7 @@ impl TcpServer {
 					}
 				},
 
-				Command::Resize(size) => {
+				(true, Command::Resize(size)) => {
 					match cache.resize(size) {
 						Ok(_) => SheetBuilder::new()
 							.write_bool(true)
@@ -261,7 +280,7 @@ impl TcpServer {
 					}
 				},
 
-				Command::Policy(policy) => {
+				(true, Command::Policy(policy)) => {
 					match cache.policy(policy) {
 						Ok(_) => SheetBuilder::new()
 							.write_bool(true)
@@ -275,7 +294,7 @@ impl TcpServer {
 					}
 				},
 
-				Command::Stats => {
+				(true, Command::Stats) => {
 					let stats = cache.stats();
 
 					let policy_byte = match stats.get_policy() {
@@ -295,6 +314,13 @@ impl TcpServer {
 						.write_f64(stats.get_miss_ratio())
 						.write_u8(policy_byte)
 						.write_u64(stats.get_uptime())
+						.to_sheet()
+				},
+
+				_ => {
+					SheetBuilder::new()
+						.write_bool(false)
+						.write_buf(b"unauthorized")
 						.to_sheet()
 				},
 			};
