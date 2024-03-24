@@ -1,3 +1,4 @@
+use std::env;
 use parse_size::parse_size;
 use kwik::text_reader::{FileReader, TextReader};
 use paper_cache::policy::Policy as CachePolicy;
@@ -87,15 +88,18 @@ impl Config {
 			return Err(ServerError::InvalidConfigLine(line.into()));
 		}
 
+		let token_value = try_parse_env(tokens[1])
+			.unwrap_or(tokens[1].into());
+
 		let config_value = match tokens[0] {
-			"host" => parse_host(tokens[1]),
-			"port" => parse_port(tokens[1]),
+			"host" => parse_host(&token_value),
+			"port" => parse_port(&token_value),
 
-			"max_size" => parse_max_size(tokens[1]),
-			"policies" => parse_policies(tokens[1]),
+			"max_size" => parse_max_size(&token_value),
+			"policies" => parse_policies(&token_value),
 
-			"max_connections" => parse_max_connections(tokens[1]),
-			"auth" => parse_auth(tokens[1]),
+			"max_connections" => parse_max_connections(&token_value),
+			"auth" => parse_auth(&token_value),
 
 			_ => Err(ServerError::InvalidConfigLine(line.into())),
 		};
@@ -119,9 +123,18 @@ impl Config {
 	}
 }
 
+fn try_parse_env(value: &str) -> Option<String> {
+	let value = value.trim();
+
+	match value.starts_with('$') {
+		true => env::var(&value[1..]).ok(),
+		false => None,
+	}
+}
+
 fn parse_host(value: &str) -> Result<ConfigValue, ServerError> {
 	if value.is_empty() {
-		return Err(ServerError::InvalidConfig);
+		return Err(ServerError::InvalidConfigParam("host"));
 	}
 
 	Ok(ConfigValue::Host(value.to_owned()))
@@ -130,7 +143,7 @@ fn parse_host(value: &str) -> Result<ConfigValue, ServerError> {
 fn parse_port(value: &str) -> Result<ConfigValue, ServerError> {
 	match value.parse::<u32>() {
 		Ok(value) => Ok(ConfigValue::Port(value)),
-		Err(_) => Err(ServerError::InvalidConfig),
+		Err(_) => Err(ServerError::InvalidConfigParam("port")),
 	}
 }
 
@@ -172,7 +185,7 @@ fn parse_max_connections(value: &str) -> Result<ConfigValue, ServerError> {
 
 fn parse_auth(value: &str) -> Result<ConfigValue, ServerError> {
 	if value.is_empty() {
-		return Err(ServerError::InvalidConfig);
+		return Err(ServerError::InvalidConfigParam("auth"));
 	}
 
 	Ok(ConfigValue::Auth(value.to_owned()))

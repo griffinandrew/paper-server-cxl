@@ -1,6 +1,6 @@
 [package]
 name = "paper_server"
-version = "1.2.0"
+version = "1.2.1"
 edition = "2021"
 
 [dependencies]
@@ -15,6 +15,7 @@ log = "0.4.20"
 nohash-hasher = "0.2.0"
 parse-size = "1.0.0"
 serde_yaml = "0.9.32"
+dotenv = "0.15.0"
 
 [[bin]]
 name = "paper-server"

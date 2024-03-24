@@ -7,6 +7,7 @@ mod config;
 mod server_object;
 
 use clap::Parser;
+use dotenv::dotenv;
 use log::error;
 use paper_cache::PaperCache;
 
@@ -24,6 +25,7 @@ struct Args {
 }
 
 fn main() {
+	dotenv().ok();
 	init_logging();
 
 	let args = Args::parse();
