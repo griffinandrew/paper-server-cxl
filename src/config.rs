@@ -1,7 +1,7 @@
 use std::env;
 use parse_size::parse_size;
 use kwik::text_reader::{FileReader, TextReader};
-use paper_cache::policy::Policy as CachePolicy;
+use paper_cache::policy::PaperPolicy;
 use crate::server_error::ServerError;
 
 #[derive(Debug)]
@@ -10,7 +10,7 @@ pub struct Config {
 	port: u32,
 
 	max_size: u64,
-	policies: Vec<CachePolicy>,
+	policies: Vec<PaperPolicy>,
 
 	max_connections: usize,
 	auth: Option<String>,
@@ -21,7 +21,7 @@ enum ConfigValue {
 	Port(u32),
 
 	MaxSize(u64),
-	Policies(Vec<CachePolicy>),
+	Policies(Vec<PaperPolicy>),
 
 	MaxConnections(usize),
 	Auth(String),
@@ -69,7 +69,7 @@ impl Config {
 		self.max_size
 	}
 
-	pub fn policies(&self) -> &[CachePolicy] {
+	pub fn policies(&self) -> &[PaperPolicy] {
 		&self.policies
 	}
 
@@ -161,14 +161,14 @@ fn parse_policies(value: &str) -> Result<ConfigValue, ServerError> {
 		return Err(ServerError::InvalidConfigParam("policies"));
 	}
 
-	let mut policies = Vec::<CachePolicy>::new();
+	let mut policies = Vec::<PaperPolicy>::new();
 
 	for token in tokens {
 		match token {
-			"lfu" => policies.push(CachePolicy::Lfu),
-			"fifo" => policies.push(CachePolicy::Fifo),
-			"lru" => policies.push(CachePolicy::Lru),
-			"mru" => policies.push(CachePolicy::Mru),
+			"lfu" => policies.push(PaperPolicy::Lfu),
+			"fifo" => policies.push(PaperPolicy::Fifo),
+			"lru" => policies.push(PaperPolicy::Lru),
+			"mru" => policies.push(PaperPolicy::Mru),
 			_ => return Err(ServerError::InvalidConfigPolicy(token.into())),
 		}
 	}

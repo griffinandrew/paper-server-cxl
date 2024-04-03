@@ -10,7 +10,7 @@ use std::{
 use log::{info, warn, error};
 use nohash_hasher::NoHashHasher;
 use kwik::ThreadPool;
-use paper_cache::{PaperCache, Policy};
+use paper_cache::{PaperCache, PaperPolicy};
 
 use paper_utils::{
 	stream::Buffer,
@@ -298,10 +298,10 @@ impl TcpServer {
 					let stats = cache.stats();
 
 					let policy_byte = match stats.get_policy() {
-						Policy::Lfu => PolicyByte::LFU,
-						Policy::Fifo => PolicyByte::FIFO,
-						Policy::Lru => PolicyByte::LRU,
-						Policy::Mru => PolicyByte::MRU,
+						PaperPolicy::Lfu => PolicyByte::LFU,
+						PaperPolicy::Fifo => PolicyByte::FIFO,
+						PaperPolicy::Lru => PolicyByte::LRU,
+						PaperPolicy::Mru => PolicyByte::MRU,
 					};
 
 					SheetBuilder::new()
