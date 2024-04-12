@@ -11,11 +11,18 @@ use dotenv::dotenv;
 use log::error;
 use paper_cache::PaperCache;
 
+#[cfg(not(target_env = "msvc"))]
+use tikv_jemallocator::Jemalloc;
+
 use crate::{
 	tcp_server::{TcpServer, NoHasher},
 	config::Config,
 	server_object::ServerObject,
 };
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]

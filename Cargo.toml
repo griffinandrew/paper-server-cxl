@@ -1,6 +1,6 @@
 [package]
 name = "paper_server"
-version = "1.2.4"
+version = "1.2.5"
 edition = "2021"
 
 [dependencies]
@@ -16,6 +16,9 @@ nohash-hasher = "0.2.0"
 parse-size = "1.0.0"
 serde_yaml = "0.9.32"
 dotenv = "0.15.0"
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.5"
 
 [[bin]]
 name = "paper-server"
