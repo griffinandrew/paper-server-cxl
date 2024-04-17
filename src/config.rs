@@ -1,6 +1,11 @@
 use std::env;
 use parse_size::parse_size;
-use kwik::text_reader::{FileReader, TextReader};
+
+use kwik::file::{
+	FileReader,
+	text::TextReader,
+};
+
 use paper_cache::policy::PaperPolicy;
 use crate::server_error::ServerError;
 

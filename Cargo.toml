@@ -1,14 +1,14 @@
 [package]
 name = "paper_server"
-version = "1.2.5"
+version = "1.2.6"
 edition = "2021"
 
 [dependencies]
 clap = { version = "4.2.7", features = ["derive"] }
 paper_utils = { git = "ssh://git@github.com/Paper-Book/paper-utils.git", tag = "v1.1.1" }
-paper_cache = { git = "ssh://git@github.com/Paper-Book/paper-cache.git", tag = "v1.3.0" }
+paper_cache = { git = "ssh://git@github.com/Paper-Book/paper-cache.git", tag = "v1.3.1" }
 byteorder = "1.4.3"
-kwik = { git = "https://github.com/KiaShakiba/kwik.git", tag = "v1.0.0" }
+kwik = { git = "https://github.com/KiaShakiba/kwik.git", tag = "v1.1.1" }
 thiserror = "1.0.56"
 log4rs = "1.2.0"
 log = "0.4.20"
