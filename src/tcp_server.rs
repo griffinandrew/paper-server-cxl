@@ -9,7 +9,7 @@ use std::{
 
 use log::{info, warn, error};
 use nohash_hasher::NoHashHasher;
-use kwik::ThreadPool;
+use kwik::thread_pool::ThreadPool;
 use paper_cache::{PaperCache, PaperPolicy};
 
 use paper_utils::{
