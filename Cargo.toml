@@ -1,20 +1,20 @@
 [package]
 name = "paper_server"
-version = "1.2.7"
+version = "1.2.8"
 edition = "2021"
 
 [dependencies]
-clap = { version = "4.2.7", features = ["derive"] }
+clap = { version = "4.5.7", features = ["derive"] }
 paper_utils = { git = "ssh://git@github.com/Paper-Book/paper-utils.git", tag = "v1.1.1" }
-paper_cache = { git = "ssh://git@github.com/Paper-Book/paper-cache.git", tag = "v1.3.2" }
-byteorder = "1.4.3"
-kwik = { git = "https://github.com/KiaShakiba/kwik.git", tag = "v1.6.0" }
-thiserror = "1.0.60"
-log4rs = "1.2.0"
-log = "0.4.20"
+paper_cache = { git = "ssh://git@github.com/Paper-Book/paper-cache.git", tag = "v1.3.3" }
+byteorder = "1.5.0"
+kwik = { git = "https://github.com/KiaShakiba/kwik.git", tag = "v1.6.3" }
+thiserror = "1.0.61"
+log4rs = "1.3.0"
+log = "0.4.21"
 nohash-hasher = "0.2.0"
 parse-size = "1.0.0"
-serde_yaml = "0.9.32"
+serde_yaml = "0.9.34"
 dotenv = "0.15.0"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
