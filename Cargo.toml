@@ -1,6 +1,6 @@
 [package]
 name = "paper_server"
-version = "1.2.9"
+version = "1.2.10"
 edition = "2021"
 
 [dependencies]
@@ -18,7 +18,7 @@ serde_yaml = "0.9.34"
 dotenv = "0.15.0"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = "0.5"
+tikv-jemallocator = { version = "0.5", features = ["background_threads"] }
 
 [[bin]]
 name = "paper-server"
