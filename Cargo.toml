@@ -1,24 +1,24 @@
 [package]
 name = "paper_server"
-version = "1.2.10"
+version = "1.2.11"
 edition = "2021"
 
 [dependencies]
-clap = { version = "4.5.7", features = ["derive"] }
+clap = { version = "4.5.17", features = ["derive"] }
 paper_utils = { git = "ssh://git@github.com/Paper-Book/paper-utils.git", tag = "v1.1.1" }
-paper_cache = { git = "ssh://git@github.com/Paper-Book/paper-cache.git", tag = "v1.3.4" }
+paper_cache = { git = "ssh://git@github.com/Paper-Book/paper-cache.git", tag = "v1.3.5" }
 byteorder = "1.5.0"
-kwik = { git = "https://github.com/KiaShakiba/kwik.git", tag = "v1.7.0" }
-thiserror = "1.0.61"
+kwik = { git = "https://github.com/KiaShakiba/kwik.git", tag = "v1.9.1" }
+thiserror = "1.0.63"
 log4rs = "1.3.0"
-log = "0.4.21"
+log = "0.4.22"
 nohash-hasher = "0.2.0"
 parse-size = "1.0.0"
 serde_yaml = "0.9.34"
 dotenv = "0.15.0"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = { version = "0.5", features = ["background_threads"] }
+tikv-jemallocator = { version = "0.6", features = ["background_threads"] }
 
 [[bin]]
 name = "paper-server"
