@@ -1,4 +1,8 @@
-use std::env;
+use std::{
+	env,
+	include_str,
+};
+
 use parse_size::parse_size;
 
 use kwik::file::{
@@ -39,16 +43,7 @@ impl Config {
 			Err(_) => return Err(ServerError::InvalidConfig),
 		};
 
-		let mut config = Config {
-			host: String::new(),
-			port: 0,
-
-			max_size: 0,
-			policies: Vec::new(),
-
-			max_connections: 0,
-			auth: None,
-		};
+		let mut config = init_uninitialized_config();
 
 		let file_iter = reader
 			.into_iter()
@@ -125,6 +120,39 @@ impl Config {
 		}
 
 		Ok(())
+	}
+}
+
+impl Default for Config {
+	fn default() -> Self {
+		let default_config_data = include_str!("../default.pconf");
+		let mut config = init_uninitialized_config();
+
+		let line_iter = default_config_data
+			.split('\n')
+			.into_iter()
+			.map(|line| line.trim().to_owned())
+			.filter(|line| !line.is_empty() && !line.starts_with('#'));
+
+		for line in line_iter {
+			Config::parse_line(&mut config, &line)
+				.expect("An error occured when parsing default config.");
+		}
+
+		config
+	}
+}
+
+fn init_uninitialized_config() -> Config {
+	Config {
+		host: String::new(),
+		port: 0,
+
+		max_size: 0,
+		policies: Vec::new(),
+
+		max_connections: 0,
+		auth: None,
 	}
 }
 

@@ -28,7 +28,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 #[command(author, version, about, long_about = None)]
 struct Args {
 	#[arg(short, long)]
-	config: String,
+	config: Option<String>,
 }
 
 fn main() {
@@ -37,13 +37,17 @@ fn main() {
 
 	let args = Args::parse();
 
-	let config = match Config::from_file(&args.config) {
-		Ok(config) => config,
+	let config = match &args.config {
+		Some(path) => match Config::from_file(path) {
+			Ok(config) => config,
 
-		Err(err) => {
-			error!("{err}");
-			return;
+			Err(err) => {
+				error!("{err}");
+				return;
+			},
 		},
+
+		None => Config::default(),
 	};
 
 	let cache = PaperCache::<u64, ServerObject, NoHasher>::with_hasher(
