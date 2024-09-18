@@ -3,8 +3,9 @@ use std::{
 		Arc,
 		atomic::{AtomicUsize, Ordering},
 	},
+	io::Write,
 	hash::{DefaultHasher, Hash, Hasher, BuildHasherDefault},
-	net::{TcpListener, Shutdown},
+	net::{TcpListener, TcpStream, Shutdown},
 };
 
 use log::{info, warn, error};
@@ -14,12 +15,12 @@ use paper_cache::{PaperCache, PaperPolicy};
 
 use paper_utils::{
 	stream::Buffer,
-	sheet::builder::SheetBuilder,
+	sheet::{Sheet, SheetBuilder},
 	policy::PolicyByte,
 };
 
 use crate::{
-	server_error::ServerError,
+	error::ServerError,
 	server_object::ServerObject,
 	command::Command,
 	tcp_connection::TcpConnection,
@@ -27,7 +28,9 @@ use crate::{
 };
 
 pub type NoHasher = BuildHasherDefault<NoHashHasher<u64>>;
+
 type Cache = PaperCache<u64, ServerObject, NoHasher>;
+type SheetResult = Result<Sheet, ServerError>;
 
 pub struct TcpServer {
 	listener: TcpListener,
@@ -37,7 +40,7 @@ pub struct TcpServer {
 
 	max_connections: usize,
 	num_connections: Arc<AtomicUsize>,
-	auth: Option<String>,
+	auth_token: Option<u64>,
 }
 
 impl TcpServer {
@@ -59,7 +62,7 @@ impl TcpServer {
 
 			max_connections: config.max_connections(),
 			num_connections: Arc::new(AtomicUsize::new(0)),
-			auth: config.auth().map(|auth| auth.to_owned()),
+			auth_token: config.auth_token(),
 		};
 
 		Ok(server)
@@ -68,9 +71,11 @@ impl TcpServer {
 	pub fn listen(&mut self) -> Result<(), ServerError> {
 		for stream in self.listener.incoming() {
 			match stream {
-				Ok(stream) => {
+				Ok(mut stream) => {
 					if self.num_connections.load(Ordering::Relaxed) == self.max_connections {
 						warn!("Maximum number of connections exceeded.");
+
+						max_connections_reject_handshake(&mut stream)?;
 
 						let _ = stream.shutdown(Shutdown::Both);
 						return Err(ServerError::MaxConnectionsExceeded);
@@ -83,7 +88,9 @@ impl TcpServer {
 
 					info!("Connected: {}", address);
 
-					let connection = TcpConnection::new(stream, self.auth.clone());
+					success_handshake(&mut stream)?;
+
+					let connection = TcpConnection::new(stream, self.auth_token);
 					let cache = self.cache.clone();
 					let num_connections = Arc::clone(&self.num_connections);
 
@@ -115,221 +122,235 @@ impl TcpServer {
 				},
 			};
 
-			let sheet = match (connection.is_authorized(), command) {
-				(_, Command::Ping) => {
-					SheetBuilder::new()
-						.write_bool(true)
-						.write_buf(b"pong")
-						.to_sheet()
-				},
+			let sheet_result = match (connection.is_authorized(), command) {
+				(_, Command::Ping) => handle_ping(),
+				(_, Command::Version) => handle_version(&cache),
 
-				(_, Command::Version) => {
-					SheetBuilder::new()
-						.write_bool(true)
-						.write_str(&cache.version())
-						.to_sheet()
-				},
+				(_, Command::Auth(token)) => handle_auth(&mut connection, &token),
 
-				(_, Command::Auth(auth)) => {
-					let is_authorized = String::from_utf8(auth.to_vec())
-						.is_ok_and(|token| connection.authorize(&token));
+				(true, Command::Get(key)) => handle_get(&cache, key),
+				(true, Command::Set(key, value, ttl)) => handle_set(&cache, key, value, ttl),
+				(true, Command::Del(key)) => handle_del(&cache, key),
 
-					match is_authorized {
-						true => SheetBuilder::new()
-							.write_bool(true)
-							.write_buf(b"done")
-							.to_sheet(),
+				(true, Command::Has(key)) => handle_has(&cache, key),
+				(true, Command::Peek(key)) => handle_peek(&cache, key),
+				(true, Command::Ttl(key, ttl)) => handle_ttl(&cache, key, ttl),
+				(true, Command::Size(key)) => handle_size(&cache, key),
 
-						false => SheetBuilder::new()
-							.write_bool(false)
-							.write_buf(b"unauthorized")
-							.to_sheet(),
-					}
-				},
+				(true, Command::Wipe) => handle_wipe(&cache),
 
-				(true, Command::Get(key)) => {
-					let key = hash(key);
+				(true, Command::Resize(size)) => handle_resize(&cache, size),
+				(true, Command::Policy(policy)) => handle_policy(&cache, policy),
 
-					match cache.get(key) {
-						Ok(object) => SheetBuilder::new()
-							.write_bool(true)
-							.write_buf(object.as_buf())
-							.to_sheet(),
+				(true, Command::Stats) => handle_stats(&cache),
 
-						Err(err) => SheetBuilder::new()
-							.write_bool(false)
-							.write_buf(err.to_string().as_bytes())
-							.to_sheet(),
-					}
-				},
-
-				(true, Command::Set(key, value, ttl)) => {
-					let key = hash(key);
-
-					match cache.set(key, value, ttl) {
-						Ok(_) => SheetBuilder::new()
-							.write_bool(true)
-							.write_buf(b"done")
-							.to_sheet(),
-
-						Err(err) => SheetBuilder::new()
-							.write_bool(false)
-							.write_buf(err.to_string().as_bytes())
-							.to_sheet(),
-					}
-				},
-
-				(true, Command::Del(key)) => {
-					let key = hash(key);
-
-					match cache.del(key) {
-						Ok(_) => SheetBuilder::new()
-							.write_bool(true)
-							.write_buf(b"done")
-							.to_sheet(),
-
-						Err(err) => SheetBuilder::new()
-							.write_bool(false)
-							.write_buf(err.to_string().as_bytes())
-							.to_sheet(),
-					}
-				},
-
-				(true, Command::Has(key)) => {
-					let key = hash(key);
-
-					SheetBuilder::new()
-						.write_bool(true)
-						.write_bool(cache.has(key))
-						.to_sheet()
-				},
-
-				(true, Command::Peek(key)) => {
-					let key = hash(key);
-
-					match cache.peek(key) {
-						Ok(object) => SheetBuilder::new()
-							.write_bool(true)
-							.write_buf(object.as_buf())
-							.to_sheet(),
-
-						Err(err) => SheetBuilder::new()
-							.write_bool(false)
-							.write_buf(err.to_string().as_bytes())
-							.to_sheet(),
-					}
-				},
-
-				(true, Command::Ttl(key, ttl)) => {
-					let key = hash(key);
-
-					match cache.ttl(key, ttl) {
-						Ok(_) => SheetBuilder::new()
-							.write_bool(true)
-							.write_buf(b"done")
-							.to_sheet(),
-
-						Err(err) => SheetBuilder::new()
-							.write_bool(false)
-							.write_buf(err.to_string().as_bytes())
-							.to_sheet(),
-					}
-				},
-
-				(true, Command::Size(key)) => {
-					let key = hash(key);
-
-					match cache.size(key) {
-						Ok(size) => SheetBuilder::new()
-							.write_bool(true)
-							.write_u64(size)
-							.to_sheet(),
-
-						Err(err) => SheetBuilder::new()
-							.write_bool(false)
-							.write_buf(err.to_string().as_bytes())
-							.to_sheet(),
-					}
-				},
-
-				(true, Command::Wipe) => {
-					match cache.wipe() {
-						Ok(_) => SheetBuilder::new()
-							.write_bool(true)
-							.write_buf(b"done")
-							.to_sheet(),
-
-						Err(err) => SheetBuilder::new()
-							.write_bool(false)
-							.write_buf(err.to_string().as_bytes())
-							.to_sheet(),
-					}
-				},
-
-				(true, Command::Resize(size)) => {
-					match cache.resize(size) {
-						Ok(_) => SheetBuilder::new()
-							.write_bool(true)
-							.write_buf(b"done")
-							.to_sheet(),
-
-						Err(err) => SheetBuilder::new()
-							.write_bool(false)
-							.write_buf(err.to_string().as_bytes())
-							.to_sheet(),
-					}
-				},
-
-				(true, Command::Policy(policy)) => {
-					match cache.policy(policy) {
-						Ok(_) => SheetBuilder::new()
-							.write_bool(true)
-							.write_buf(b"done")
-							.to_sheet(),
-
-						Err(err) => SheetBuilder::new()
-							.write_bool(false)
-							.write_buf(err.to_string().as_bytes())
-							.to_sheet(),
-					}
-				},
-
-				(true, Command::Stats) => {
-					let stats = cache.stats();
-
-					let policy_byte = match stats.get_policy() {
-						PaperPolicy::Lfu => PolicyByte::LFU,
-						PaperPolicy::Fifo => PolicyByte::FIFO,
-						PaperPolicy::Lru => PolicyByte::LRU,
-						PaperPolicy::Mru => PolicyByte::MRU,
-					};
-
-					SheetBuilder::new()
-						.write_bool(true)
-						.write_u64(stats.get_max_size())
-						.write_u64(stats.get_used_size())
-						.write_u64(stats.get_total_gets())
-						.write_u64(stats.get_total_sets())
-						.write_u64(stats.get_total_dels())
-						.write_f64(stats.get_miss_ratio())
-						.write_u8(policy_byte)
-						.write_u64(stats.get_uptime())
-						.to_sheet()
-				},
-
-				_ => {
-					SheetBuilder::new()
-						.write_bool(false)
-						.write_buf(b"unauthorized")
-						.to_sheet()
-				},
+				_ => Err(ServerError::Unauthorized),
 			};
+
+			let sheet = sheet_result.unwrap_or_else(|err| err.to_sheet());
 
 			if (connection.send_response(sheet.serialize())).is_err() {
 				error!("Could not send response to command.");
 			}
 		}
 	}
+}
+
+fn success_handshake(stream: &mut TcpStream) -> Result<(), ServerError> {
+	let sheet = SheetBuilder::new()
+		.write_bool(true)
+		.into_sheet();
+
+	stream
+		.write_all(sheet.serialize())
+		.map_err(|_| ServerError::InvalidResponse)
+}
+
+fn max_connections_reject_handshake(stream: &mut TcpStream) -> Result<(), ServerError> {
+	let sheet = ServerError::MaxConnectionsExceeded.to_sheet();
+
+	stream
+		.write_all(sheet.serialize())
+		.map_err(|_| ServerError::InvalidResponse)
+}
+
+fn handle_ping() -> SheetResult {
+	let sheet = SheetBuilder::new()
+		.write_bool(true)
+		.write_buf(b"pong")
+		.into_sheet();
+
+	Ok(sheet)
+}
+
+fn handle_version(cache: &Arc<Cache>) -> SheetResult {
+	let sheet = SheetBuilder::new()
+		.write_bool(true)
+		.write_str(&cache.version())
+		.into_sheet();
+
+	Ok(sheet)
+}
+
+fn handle_auth(connection: &mut TcpConnection, token: &Buffer) -> SheetResult {
+	let is_authorized = String::from_utf8(token.to_vec())
+		.is_ok_and(|token| connection.authorize(&token));
+
+	if !is_authorized {
+		return Err(ServerError::Unauthorized);
+	}
+
+	let sheet = SheetBuilder::new()
+		.write_bool(true)
+		.into_sheet();
+
+	Ok(sheet)
+}
+
+fn handle_get(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
+	let key = hash(key);
+
+	cache.get(key)
+		.map(|object|
+			SheetBuilder::new()
+				.write_bool(true)
+				.write_buf(object.as_buf())
+				.into_sheet(),
+		)
+		.map_err(ServerError::CacheError)
+}
+
+fn handle_set(
+	cache: &Arc<Cache>,
+	key: Buffer,
+	value: ServerObject,
+	ttl: Option<u32>,
+) -> SheetResult {
+	let key = hash(key);
+
+	cache.set(key, value, ttl)
+		.map(|_|
+			SheetBuilder::new()
+				.write_bool(true)
+				.into_sheet()
+		)
+		.map_err(ServerError::CacheError)
+}
+
+fn handle_del(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
+	let key = hash(key);
+
+	cache.del(key)
+		.map(|_|
+			SheetBuilder::new()
+				.write_bool(true)
+				.into_sheet()
+		)
+		.map_err(ServerError::CacheError)
+}
+
+fn handle_has(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
+	let key = hash(key);
+
+	let sheet = SheetBuilder::new()
+		.write_bool(true)
+		.write_bool(cache.has(key))
+		.into_sheet();
+
+	Ok(sheet)
+}
+
+fn handle_peek(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
+	let key = hash(key);
+
+	cache.peek(key)
+		.map(|object|
+			SheetBuilder::new()
+				.write_bool(true)
+				.write_buf(object.as_buf())
+				.into_sheet()
+		)
+		.map_err(ServerError::CacheError)
+}
+
+fn handle_ttl(cache: &Arc<Cache>, key: Buffer, ttl: Option<u32>) -> SheetResult {
+	let key = hash(key);
+
+	cache.ttl(key, ttl)
+		.map(|_|
+			SheetBuilder::new()
+				.write_bool(true)
+				.into_sheet()
+		)
+		.map_err(ServerError::CacheError)
+}
+
+fn handle_size(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
+	let key = hash(key);
+
+	cache.size(key)
+		.map(|size|
+			SheetBuilder::new()
+				.write_bool(true)
+				.write_u64(size)
+				.into_sheet()
+		)
+		.map_err(ServerError::CacheError)
+}
+
+fn handle_wipe(cache: &Arc<Cache>) -> SheetResult {
+	cache.wipe()
+		.map(|_|
+			SheetBuilder::new()
+				.write_bool(true)
+				.into_sheet()
+		)
+		.map_err(ServerError::CacheError)
+}
+
+fn handle_resize(cache: &Arc<Cache>, size: u64) -> SheetResult {
+	cache.resize(size)
+		.map(|_|
+			SheetBuilder::new()
+				.write_bool(true)
+				.into_sheet()
+		)
+		.map_err(ServerError::CacheError)
+}
+
+fn handle_policy(cache: &Arc<Cache>, policy: PaperPolicy) -> SheetResult {
+	cache.policy(policy)
+		.map(|_|
+			SheetBuilder::new()
+				.write_bool(true)
+				.into_sheet()
+		)
+		.map_err(ServerError::CacheError)
+}
+
+fn handle_stats(cache: &Arc<Cache>) -> SheetResult {
+	let stats = cache.stats();
+
+	let policy_byte = match stats.get_policy() {
+		PaperPolicy::Lfu => PolicyByte::LFU,
+		PaperPolicy::Fifo => PolicyByte::FIFO,
+		PaperPolicy::Lru => PolicyByte::LRU,
+		PaperPolicy::Mru => PolicyByte::MRU,
+	};
+
+	let sheet = SheetBuilder::new()
+		.write_bool(true)
+		.write_u64(stats.get_max_size())
+		.write_u64(stats.get_used_size())
+		.write_u64(stats.get_total_gets())
+		.write_u64(stats.get_total_sets())
+		.write_u64(stats.get_total_dels())
+		.write_f64(stats.get_miss_ratio())
+		.write_u8(policy_byte)
+		.write_u64(stats.get_uptime())
+		.into_sheet();
+
+	Ok(sheet)
 }
 
 fn hash(key: Buffer) -> u64 {

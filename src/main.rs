@@ -1,5 +1,5 @@
 mod logo;
-mod server_error;
+mod error;
 mod command;
 mod tcp_server;
 mod tcp_connection;

@@ -17,8 +17,8 @@ max_size=2GiB
 policies=lfu|lru|mru|fifo
 
 # Maximum number of concurrent connections
-max_connections=4
+max_connections=1
 
 # Authorization token (optional)
 # If set, clients must supply this token to send commands
-# auth=auth_token
+# auth_token=<your_auth_token>

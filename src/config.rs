@@ -1,6 +1,7 @@
 use std::{
 	env,
 	include_str,
+	hash::{DefaultHasher, Hash, Hasher},
 };
 
 use parse_size::parse_size;
@@ -11,7 +12,7 @@ use kwik::file::{
 };
 
 use paper_cache::policy::PaperPolicy;
-use crate::server_error::ServerError;
+use crate::error::ServerError;
 
 #[derive(Debug)]
 pub struct Config {
@@ -22,7 +23,7 @@ pub struct Config {
 	policies: Vec<PaperPolicy>,
 
 	max_connections: usize,
-	auth: Option<String>,
+	auth_token: Option<u64>,
 }
 
 enum ConfigValue {
@@ -33,7 +34,7 @@ enum ConfigValue {
 	Policies(Vec<PaperPolicy>),
 
 	MaxConnections(usize),
-	Auth(String),
+	AuthToken(u64),
 }
 
 impl Config {
@@ -77,8 +78,8 @@ impl Config {
 		self.max_connections
 	}
 
-	pub fn auth(&self) -> Option<&str> {
-		self.auth.as_deref()
+	pub fn auth_token(&self) -> Option<u64> {
+		self.auth_token
 	}
 
 	fn parse_line(config: &mut Config, line: &str) -> Result<(), ServerError> {
@@ -99,7 +100,7 @@ impl Config {
 			"policies" => parse_policies(&token_value),
 
 			"max_connections" => parse_max_connections(&token_value),
-			"auth" => parse_auth(&token_value),
+			"auth_token" => parse_auth_token(&token_value),
 
 			_ => Err(ServerError::InvalidConfigLine(line.into())),
 		};
@@ -113,7 +114,7 @@ impl Config {
 				ConfigValue::Policies(policies) => config.policies = policies,
 
 				ConfigValue::MaxConnections(max_connections) => config.max_connections = max_connections,
-				ConfigValue::Auth(token) => config.auth = Some(token),
+				ConfigValue::AuthToken(token) => config.auth_token = Some(token),
 			},
 
 			Err(err) => return Err(err),
@@ -130,7 +131,6 @@ impl Default for Config {
 
 		let line_iter = default_config_data
 			.split('\n')
-			.into_iter()
 			.map(|line| line.trim().to_owned())
 			.filter(|line| !line.is_empty() && !line.starts_with('#'));
 
@@ -152,7 +152,7 @@ fn init_uninitialized_config() -> Config {
 		policies: Vec::new(),
 
 		max_connections: 0,
-		auth: None,
+		auth_token: None,
 	}
 }
 
@@ -216,10 +216,13 @@ fn parse_max_connections(value: &str) -> Result<ConfigValue, ServerError> {
 	}
 }
 
-fn parse_auth(value: &str) -> Result<ConfigValue, ServerError> {
+fn parse_auth_token(value: &str) -> Result<ConfigValue, ServerError> {
 	if value.is_empty() {
-		return Err(ServerError::InvalidConfigParam("auth"));
+		return Err(ServerError::InvalidConfigParam("auth_token"));
 	}
 
-	Ok(ConfigValue::Auth(value.to_owned()))
+	let mut s = DefaultHasher::new();
+	value.hash(&mut s);
+
+	Ok(ConfigValue::AuthToken(s.finish()))
 }

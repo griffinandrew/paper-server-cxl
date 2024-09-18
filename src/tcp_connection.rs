@@ -1,33 +1,34 @@
 use std::{
 	io::Write,
+	hash::{DefaultHasher, Hash, Hasher},
 	net::TcpStream,
 };
 
 use paper_utils::stream::StreamError;
 
 use crate::{
-	server_error::ServerError,
+	error::ServerError,
 	command::Command,
 };
 
 pub struct TcpConnection {
 	stream: TcpStream,
 
-	auth: Option<String>,
+	auth_token: Option<u64>,
 	is_authorized: bool,
 }
 
 impl TcpConnection {
 	pub fn new(
 		stream: TcpStream,
-		auth: Option<String>,
+		auth_token: Option<u64>,
 	) -> Self {
-		let is_authorized = auth.is_none();
+		let is_authorized = auth_token.is_none();
 
 		TcpConnection {
 			stream,
 
-			auth,
+			auth_token,
 			is_authorized,
 		}
 	}
@@ -41,9 +42,11 @@ impl TcpConnection {
 			return true;
 		}
 
-		self.is_authorized = self.auth
-			.as_ref()
-			.is_some_and(|token| token == value);
+		let mut s = DefaultHasher::new();
+		value.hash(&mut s);
+
+		self.is_authorized = self.auth_token
+			.is_some_and(|token| token == s.finish());
 
 		self.is_authorized
 	}
@@ -58,6 +61,8 @@ impl TcpConnection {
 	}
 
 	pub fn send_response(&mut self, buf: &[u8]) -> Result<(), ServerError> {
-		self.stream.write_all(buf).map_err(|_| ServerError::InvalidResponse)
+		self.stream
+			.write_all(buf)
+			.map_err(|_| ServerError::InvalidResponse)
 	}
 }
