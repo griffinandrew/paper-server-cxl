@@ -11,7 +11,7 @@ use kwik::file::{
 	text::TextReader,
 };
 
-use paper_cache::policy::PaperPolicy;
+use paper_cache::PaperPolicy;
 use crate::error::ServerError;
 
 #[derive(Debug)]

@@ -21,7 +21,6 @@ use paper_utils::{
 
 use crate::{
 	error::ServerError,
-	server_object::ServerObject,
 	command::Command,
 	tcp_connection::TcpConnection,
 	config::Config,
@@ -29,7 +28,7 @@ use crate::{
 
 pub type NoHasher = BuildHasherDefault<NoHashHasher<u64>>;
 
-type Cache = PaperCache<u64, ServerObject, NoHasher>;
+type Cache = PaperCache<u64, Buffer, NoHasher>;
 type SheetResult = Result<Sheet, ServerError>;
 
 pub struct TcpServer {
@@ -214,7 +213,7 @@ fn handle_get(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 		.map(|object|
 			SheetBuilder::new()
 				.write_bool(true)
-				.write_buf(object.as_buf())
+				.write_buf(&object)
 				.into_sheet(),
 		)
 		.map_err(ServerError::CacheError)
@@ -223,7 +222,7 @@ fn handle_get(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 fn handle_set(
 	cache: &Arc<Cache>,
 	key: Buffer,
-	value: ServerObject,
+	value: Buffer,
 	ttl: Option<u32>,
 ) -> SheetResult {
 	let key = hash(key);
@@ -267,7 +266,7 @@ fn handle_peek(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 		.map(|object|
 			SheetBuilder::new()
 				.write_bool(true)
-				.write_buf(object.as_buf())
+				.write_buf(&object)
 				.into_sheet()
 		)
 		.map_err(ServerError::CacheError)

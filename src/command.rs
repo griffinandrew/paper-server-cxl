@@ -1,13 +1,11 @@
 use std::net::TcpStream;
-use paper_cache::policy::PaperPolicy;
+use paper_cache::PaperPolicy;
 
 use paper_utils::{
 	stream::{Buffer, StreamReader, StreamError},
 	command::CommandByte,
 	policy::PolicyByte,
 };
-
-use crate::server_object::ServerObject;
 
 pub enum Command {
 	Ping,
@@ -16,7 +14,7 @@ pub enum Command {
 	Auth(Buffer),
 
 	Get(Buffer),
-	Set(Buffer, ServerObject, Option<u32>),
+	Set(Buffer, Buffer, Option<u32>),
 	Del(Buffer),
 
 	Has(Buffer),
@@ -59,7 +57,7 @@ impl Command {
 					value => Some(value),
 				};
 
-				Ok(Command::Set(key, ServerObject::new(value), ttl))
+				Ok(Command::Set(key, value, ttl))
 			},
 
 			CommandByte::DEL => {

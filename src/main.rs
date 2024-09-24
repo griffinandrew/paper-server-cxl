@@ -4,12 +4,12 @@ mod command;
 mod tcp_server;
 mod tcp_connection;
 mod config;
-mod server_object;
 
 use clap::Parser;
 use dotenv::dotenv;
 use log::error;
 use paper_cache::PaperCache;
+use paper_utils::stream::Buffer;
 
 #[cfg(not(target_env = "msvc"))]
 use tikv_jemallocator::Jemalloc;
@@ -17,7 +17,6 @@ use tikv_jemallocator::Jemalloc;
 use crate::{
 	tcp_server::{TcpServer, NoHasher},
 	config::Config,
-	server_object::ServerObject,
 };
 
 #[cfg(not(target_env = "msvc"))]
@@ -50,7 +49,7 @@ fn main() {
 		None => Config::default(),
 	};
 
-	let cache = PaperCache::<u64, ServerObject, NoHasher>::with_hasher(
+	let cache = PaperCache::<u64, Buffer, NoHasher>::with_hasher(
 		config.max_size(),
 		config.policies(),
 		NoHasher::default(),
