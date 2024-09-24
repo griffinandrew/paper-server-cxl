@@ -1,27 +1,40 @@
 mod logo;
 mod error;
 mod command;
-mod tcp_server;
-mod tcp_connection;
+//mod tcp_server;
+//mod tcp_connection;
 mod config;
+mod server;
+mod listener;
+mod handler;
+mod shutdown;
+mod connection;
+mod frame;
+mod parse;
+mod object;
 
+use std::hash::BuildHasherDefault;
 use clap::Parser;
+use tokio::signal;
 use dotenv::dotenv;
 use log::error;
+use nohash_hasher::NoHashHasher;
 use paper_cache::PaperCache;
-use paper_utils::stream::Buffer;
 
 #[cfg(not(target_env = "msvc"))]
 use tikv_jemallocator::Jemalloc;
 
 use crate::{
-	tcp_server::{TcpServer, NoHasher},
 	config::Config,
+	server::Server,
+	object::Object,
 };
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
+
+type NoHasher = BuildHasherDefault<NoHashHasher<u64>>;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -30,7 +43,8 @@ struct Args {
 	config: Option<String>,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
 	dotenv().ok();
 	init_logging();
 
@@ -39,17 +53,13 @@ fn main() {
 	let config = match &args.config {
 		Some(path) => match Config::from_file(path) {
 			Ok(config) => config,
-
-			Err(err) => {
-				error!("{err}");
-				return;
-			},
+			Err(err) => return error!("{err}"),
 		},
 
 		None => Config::default(),
 	};
 
-	let cache = PaperCache::<u64, Buffer, NoHasher>::with_hasher(
+	let cache = PaperCache::<u64, Object, NoHasher>::with_hasher(
 		config.max_size(),
 		config.policy(),
 		NoHasher::default(),
@@ -57,7 +67,7 @@ fn main() {
 
 	let cache_version = cache.version();
 
-	let mut server = match TcpServer::new(&config, cache) {
+	let server = match Server::init(&config).await {
 		Ok(server) => {
 			logo::print(&cache_version, config.port());
 			server
@@ -69,9 +79,7 @@ fn main() {
 		},
 	};
 
-	loop {
-		let _ = server.listen();
-	}
+	server.listen(signal::ctrl_c()).await;
 }
 
 fn init_logging() {
