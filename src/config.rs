@@ -4,6 +4,7 @@ use std::{
 	hash::{DefaultHasher, Hash, Hasher},
 };
 
+use bytes::Bytes;
 use parse_size::parse_size;
 
 use kwik::file::{
@@ -212,8 +213,10 @@ fn parse_auth_token(value: &str) -> Result<ConfigValue, ServerError> {
 		return Err(ServerError::InvalidConfigParam("auth_token"));
 	}
 
+	let bytes = Bytes::copy_from_slice(value.as_bytes());
+
 	let mut s = DefaultHasher::new();
-	value.hash(&mut s);
+	bytes.hash(&mut s);
 
 	Ok(ConfigValue::AuthToken(s.finish()))
 }

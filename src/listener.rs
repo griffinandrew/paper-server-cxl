@@ -9,7 +9,7 @@ use tokio::{
 
 use crate::{
 	error::ServerError,
-	server::CacheRef,
+	vault::Vault,
 	handler::Handler,
 	shutdown::Shutdown,
 	connection::Connection,
@@ -18,7 +18,7 @@ use crate::{
 const MAX_BACKOFF: u64 = 64;
 
 pub struct Listener {
-	pub cache: CacheRef,
+	pub vault: Vault,
 
 	pub listener: TcpListener,
 	pub limit_connections: Arc<Semaphore>,
@@ -38,12 +38,12 @@ impl Listener {
 			let socket = self.accept().await?;
 
 			let mut handler = Handler {
-				cache: self.cache.clone(),
+				vault: self.vault.clone(),
 
-				connection: Connection::new(socket),
+				connection: Connection::new(socket)?,
 
 				shutdown: Shutdown::new(self.notify_shutdown.subscribe()),
-				shutdown_complete: self.shutdown_complete_tx.clone(),
+				_shutdown_complete: self.shutdown_complete_tx.clone(),
 			};
 
 			tokio::spawn(async move {

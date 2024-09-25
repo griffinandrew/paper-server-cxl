@@ -18,11 +18,15 @@ pub struct Connection {
 }
 
 impl Connection {
-	pub fn new(socket: TcpStream) -> Self {
-		Connection {
+	pub fn new(socket: TcpStream) -> Result<Self, ServerError> {
+		socket.set_nodelay(true)?;
+
+		let connection = Connection {
 			stream: BufWriter::new(socket),
 			buffer: BytesMut::with_capacity(4096),
-		}
+		};
+
+		Ok(connection)
 	}
 
 	pub async fn read_frame(&mut self) -> Result<Option<Frame>, FrameError> {

@@ -20,12 +20,6 @@ pub enum ServerError {
 	#[error("the maximum number of connections was exceeded")]
 	MaxConnectionsExceeded,
 
-	#[error("{0}")]
-	InvalidCommand(String),
-
-	#[error("invalid response")]
-	InvalidResponse,
-
 	#[error("disconnected from client")]
 	Disconnected,
 
@@ -114,8 +108,6 @@ fn get_error_code(error: &ServerError) -> u8 {
 		ServerError::Internal
 			| ServerError::InvalidAddress
 			| ServerError::InvalidConnection
-			| ServerError::InvalidCommand(_)
-			| ServerError::InvalidResponse
 			| ServerError::Disconnected
 			| ServerError::InvalidConfig
 			| ServerError::InvalidConfigLine(_)

@@ -45,7 +45,7 @@ pub enum CommandType {
 	Ping(Ping),
 	Version(Version),
 
-	//Auth(Bytes),
+	Auth(Auth),
 
 	Get(Get),
 	Set(Set),
@@ -62,12 +62,6 @@ pub enum CommandType {
 	Policy(Policy),
 
 	Stats(Stats),
-/*
-
-
-
-
-*/
 }
 
 trait Command {
@@ -87,6 +81,7 @@ impl CommandType {
 		let command = match command_byte {
 			CommandByte::PING => CommandType::Ping(Ping::parse_frames(&mut parse)?),
 			CommandByte::VERSION => CommandType::Version(Version::parse_frames(&mut parse)?),
+			CommandByte::AUTH => CommandType::Auth(Auth::parse_frames(&mut parse)?),
 
 			CommandByte::GET => CommandType::Get(Get::parse_frames(&mut parse)?),
 			CommandByte::SET => CommandType::Set(Set::parse_frames(&mut parse)?),
@@ -120,6 +115,7 @@ impl CommandType {
 		let res = match self {
 			CommandType::Ping(command) => command.apply(dst, cache).await,
 			CommandType::Version(command) => command.apply(dst, cache).await,
+			CommandType::Auth(command) => command.apply(dst, cache).await,
 
 			CommandType::Get(command) => command.apply(dst, cache).await,
 			CommandType::Set(command) => command.apply(dst, cache).await,
@@ -146,8 +142,8 @@ impl CommandType {
 	}
 }
 
-fn hash(key: &Bytes) -> u64 {
+fn hash(data: &Bytes) -> u64 {
 	let mut s = DefaultHasher::new();
-	key.hash(&mut s);
+	data.hash(&mut s);
 	s.finish()
 }

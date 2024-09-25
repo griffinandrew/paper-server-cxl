@@ -1,8 +1,6 @@
 mod logo;
 mod error;
 mod command;
-//mod tcp_server;
-//mod tcp_connection;
 mod config;
 mod server;
 mod listener;
@@ -12,6 +10,7 @@ mod connection;
 mod frame;
 mod parse;
 mod object;
+mod vault;
 
 use std::hash::BuildHasherDefault;
 use clap::Parser;

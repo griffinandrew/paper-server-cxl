@@ -2,19 +2,19 @@ use tokio::sync::mpsc;
 
 use crate::{
 	error::ServerError,
-	server::CacheRef,
+	vault::Vault,
 	shutdown::Shutdown,
 	connection::Connection,
 	command::CommandType,
 };
 
 pub struct Handler {
-	pub cache: CacheRef,
+	pub vault: Vault,
 
 	pub connection: Connection,
 
 	pub shutdown: Shutdown,
-	pub shutdown_complete: mpsc::Sender<()>,
+	pub _shutdown_complete: mpsc::Sender<()>,
 }
 
 impl Handler {
@@ -35,8 +35,24 @@ impl Handler {
 				None => return Ok(()),
 			};
 
-			let command = CommandType::from_frame(frame)?;
-			command.apply(&mut self.connection, &self.cache).await?;
+			match CommandType::from_frame(frame)? {
+				CommandType::Auth(auth_command) => {
+					auth_command.authenticate(&mut self.connection, &mut self.vault).await?;
+				},
+
+				command => {
+					let cache = match self.vault.cache() {
+						Ok(cache) => cache,
+
+						Err(err) => {
+							self.connection.write_frame(&err.into_frame()).await?;
+							continue;
+						},
+					};
+
+					command.apply(&mut self.connection, cache).await?;
+				},
+			}
 		}
 
 		Ok(())

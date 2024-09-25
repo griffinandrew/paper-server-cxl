@@ -4,7 +4,7 @@ use crate::{
 	connection::Connection,
 	frame::Frame,
 	parse::Parse,
-	command::{Command, hash},
+	command::Command,
 };
 
 pub struct Resize {
