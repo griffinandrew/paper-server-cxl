@@ -79,16 +79,13 @@ fn get_error_code(error: &ServerError) -> u8 {
 
 fn get_cache_error_code(error: &CacheError) -> u8 {
 	match error {
-		CacheError::Internal
-			| CacheError::EmptyPolicies
-			| CacheError::DuplicatePolicies
-			| CacheError::UnconfiguredPolicy	=> 0,
+		CacheError::Internal			=> 0,
 
-		CacheError::KeyNotFound					=> 1,
+		CacheError::KeyNotFound			=> 1,
 
-		CacheError::ZeroValueSize				=> 2,
-		CacheError::ExceedingValueSize			=> 3,
+		CacheError::ZeroValueSize		=> 2,
+		CacheError::ExceedingValueSize	=> 3,
 
-		CacheError::ZeroCacheSize				=> 4,
+		CacheError::ZeroCacheSize		=> 4,
 	}
 }

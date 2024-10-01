@@ -51,7 +51,7 @@ fn main() {
 
 	let cache = PaperCache::<u64, Buffer, NoHasher>::with_hasher(
 		config.max_size(),
-		config.policies(),
+		config.policy(),
 		NoHasher::default(),
 	).expect("Could not configure cache.");
 

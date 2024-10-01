@@ -7,17 +7,16 @@ port=3145
 # Maximum size of the cache specified in bytes
 max_size=2GiB
 
-# Policies which should be considered by the cache
-# Pipe-separated list
+# The initial eviction policy of the cache.
 # Possible values:
 # - lfu
+# - fifo
 # - lru
 # - mru
-# - fifo
-policies=lfu|lru|mru|fifo
+policy=lfu
 
 # Maximum number of concurrent connections
-max_connections=4
+max_connections=50
 
 # Authorization token (optional)
 # If set, clients must supply this token to send commands
