@@ -7,7 +7,7 @@ port=3145
 # Maximum size of the cache specified in bytes
 max_size=2GiB
 
-# The initial eviction policy of the cache.
+# The initial eviction policy of the cache
 # Possible values:
 # - lfu
 # - fifo
