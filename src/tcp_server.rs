@@ -291,7 +291,7 @@ fn handle_size(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 		.map(|size|
 			SheetBuilder::new()
 				.write_bool(true)
-				.write_u64(size)
+				.write_u64(size.into())
 				.into_sheet()
 		)
 		.map_err(ServerError::CacheError)

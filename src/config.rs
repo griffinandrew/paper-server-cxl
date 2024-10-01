@@ -39,7 +39,7 @@ enum ConfigValue {
 
 impl Config {
 	pub fn from_file(path: &str) -> Result<Self, ServerError> {
-		let reader = match TextReader::new(path) {
+		let reader = match TextReader::from_path(path) {
 			Ok(reader) => reader,
 			Err(_) => return Err(ServerError::InvalidConfig),
 		};
