@@ -1,8 +1,8 @@
 mod logo;
 mod error;
 mod command;
-mod tcp_server;
-mod tcp_connection;
+mod server;
+mod connection;
 mod config;
 
 use clap::Parser;
@@ -15,7 +15,7 @@ use paper_utils::stream::Buffer;
 use tikv_jemallocator::Jemalloc;
 
 use crate::{
-	tcp_server::{TcpServer, NoHasher},
+	server::{Server, NoHasher},
 	config::Config,
 };
 
@@ -57,7 +57,7 @@ fn main() {
 
 	let cache_version = cache.version();
 
-	let mut server = match TcpServer::new(&config, cache) {
+	let mut server = match Server::new(&config, cache) {
 		Ok(server) => {
 			logo::print(&cache_version, config.port());
 			server

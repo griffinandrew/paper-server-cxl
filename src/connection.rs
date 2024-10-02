@@ -11,21 +11,21 @@ use crate::{
 	command::Command,
 };
 
-pub struct TcpConnection {
+pub struct Connection {
 	stream: TcpStream,
 
 	auth_token: Option<u64>,
 	is_authorized: bool,
 }
 
-impl TcpConnection {
+impl Connection {
 	pub fn new(
 		stream: TcpStream,
 		auth_token: Option<u64>,
 	) -> Self {
 		let is_authorized = auth_token.is_none();
 
-		TcpConnection {
+		Connection {
 			stream,
 
 			auth_token,

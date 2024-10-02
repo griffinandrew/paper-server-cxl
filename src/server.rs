@@ -22,7 +22,7 @@ use paper_utils::{
 use crate::{
 	error::ServerError,
 	command::Command,
-	tcp_connection::TcpConnection,
+	connection::Connection,
 	config::Config,
 };
 
@@ -31,7 +31,7 @@ pub type NoHasher = BuildHasherDefault<NoHashHasher<u64>>;
 type Cache = PaperCache<u64, Buffer, NoHasher>;
 type SheetResult = Result<Sheet, ServerError>;
 
-pub struct TcpServer {
+pub struct Server {
 	listener: TcpListener,
 	cache: Arc<Cache>,
 
@@ -42,7 +42,7 @@ pub struct TcpServer {
 	auth_token: Option<u64>,
 }
 
-impl TcpServer {
+impl Server {
 	pub fn new(
 		config: &Config,
 		cache: Cache,
@@ -53,7 +53,7 @@ impl TcpServer {
 			return Err(ServerError::InvalidAddress);
 		};
 
-		let server = TcpServer {
+		let server = Server {
 			listener,
 			cache: Arc::new(cache),
 
@@ -89,13 +89,13 @@ impl TcpServer {
 
 					success_handshake(&mut stream)?;
 
-					let connection = TcpConnection::new(stream, self.auth_token);
+					let connection = Connection::new(stream, self.auth_token);
 					let cache = self.cache.clone();
 					let num_connections = Arc::clone(&self.num_connections);
 
 					self.pool.execute(move || {
 						num_connections.fetch_add(1, Ordering::Relaxed);
-						TcpServer::handle_connection(connection, cache);
+						Server::handle_connection(connection, cache);
 
 						info!("Disconnected: {}", address);
 						num_connections.fetch_sub(1, Ordering::Relaxed);
@@ -109,7 +109,7 @@ impl TcpServer {
 		Ok(())
 	}
 
-	fn handle_connection(mut connection: TcpConnection, cache: Arc<Cache>) {
+	fn handle_connection(mut connection: Connection, cache: Arc<Cache>) {
 		loop {
 			let command = match connection.get_command() {
 				Ok(command) => command,
@@ -191,7 +191,7 @@ fn handle_version(cache: &Arc<Cache>) -> SheetResult {
 	Ok(sheet)
 }
 
-fn handle_auth(connection: &mut TcpConnection, token: &Buffer) -> SheetResult {
+fn handle_auth(connection: &mut Connection, token: &Buffer) -> SheetResult {
 	let is_authorized = String::from_utf8(token.to_vec())
 		.is_ok_and(|token| connection.authorize(&token));
 
@@ -291,7 +291,7 @@ fn handle_size(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 		.map(|size|
 			SheetBuilder::new()
 				.write_bool(true)
-				.write_u64(size.into())
+				.write_u32(size)
 				.into_sheet()
 		)
 		.map_err(ServerError::CacheError)
