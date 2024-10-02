@@ -28,7 +28,7 @@ impl Command for Size {
 
 		let frames = vec![
 			Frame::Bool(true),
-			Frame::U64(size),
+			Frame::U64(size.into()),
 		];
 
 		let frame = Frame::Array(frames);
