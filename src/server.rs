@@ -71,14 +71,14 @@ impl Server {
 		tokio::select! {
 			res = server.run() => {
 				if res.is_err() {
-					error!("Could not accept connection.");
+					error!("Could not accept connection");
 				}
 			},
 
 			_ = shutdown => {
-				info!("Shutting down.");
+				info!("Shutting down");
 			},
-		}
+		};
 
 		let Listener {
 			shutdown_complete_tx,

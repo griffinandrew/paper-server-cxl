@@ -20,9 +20,6 @@ pub enum ServerError {
 	#[error("the maximum number of connections was exceeded")]
 	MaxConnectionsExceeded,
 
-	#[error("disconnected from client")]
-	Disconnected,
-
 	#[error("could not open config file")]
 	InvalidConfig,
 
@@ -108,7 +105,6 @@ fn get_error_code(error: &ServerError) -> u8 {
 		ServerError::Internal
 			| ServerError::InvalidAddress
 			| ServerError::InvalidConnection
-			| ServerError::Disconnected
 			| ServerError::InvalidConfig
 			| ServerError::InvalidConfigLine(_)
 			| ServerError::InvalidConfigParam(_)

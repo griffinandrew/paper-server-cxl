@@ -2,7 +2,7 @@ use std::io::{self, Cursor};
 use bytes::{Buf, BytesMut};
 
 use tokio::{
-	io::{BufWriter, AsyncReadExt, AsyncWriteExt},
+	io::{BufStream, AsyncReadExt, AsyncWriteExt},
 	net::TcpStream,
 };
 
@@ -13,7 +13,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Connection {
-	stream: BufWriter<TcpStream>,
+	stream: BufStream<TcpStream>,
 	buffer: BytesMut,
 }
 
@@ -22,7 +22,7 @@ impl Connection {
 		socket.set_nodelay(true)?;
 
 		let connection = Connection {
-			stream: BufWriter::new(socket),
+			stream: BufStream::new(socket),
 			buffer: BytesMut::with_capacity(4096),
 		};
 
