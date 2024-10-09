@@ -19,7 +19,7 @@ impl Command for Ping {
 	async fn apply(self, dst: &mut Connection, _: &CacheRef) -> Result<(), ServerError> {
 		let frames = vec![
 			Frame::Bool(true),
-			Frame::Bytes(Bytes::copy_from_slice(b"pong")),
+			Frame::Bytes(Bytes::from_static(b"pong")),
 		];
 
 		let frame = Frame::Array(frames);

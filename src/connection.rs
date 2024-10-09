@@ -43,7 +43,7 @@ impl Connection {
 				if self.buffer.is_empty() {
 					return Ok(None);
 				} else {
-					return Err(FrameError::Server(ServerError::InvalidConnection));
+					return Err(ServerError::InvalidConnection.into());
 				}
 			}
 		}
