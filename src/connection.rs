@@ -6,6 +6,8 @@ use tokio::{
 	net::TcpStream,
 };
 
+use paper_utils::stream::{TRUE_INDICATOR, FALSE_INDICATOR};
+
 use crate::{
 	error::{ServerError, FrameError},
 	frame::Frame,
@@ -86,9 +88,9 @@ impl Connection {
 		match frame {
 			Frame::Bool(value) => {
 				if *value {
-					self.stream.write_u8(b"!"[0]).await?;
+					self.stream.write_u8(TRUE_INDICATOR).await?;
 				} else {
-					self.stream.write_u8(b"?"[0]).await?;
+					self.stream.write_u8(FALSE_INDICATOR).await?;
 				}
 			},
 
