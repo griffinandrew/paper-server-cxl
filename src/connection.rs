@@ -1,5 +1,6 @@
 use std::io::{self, Cursor};
 use bytes::{Buf, BytesMut};
+use socket2::SockRef;
 
 use tokio::{
 	io::{BufStream, AsyncReadExt, AsyncWriteExt},
@@ -21,7 +22,10 @@ pub struct Connection {
 
 impl Connection {
 	pub fn new(socket: TcpStream) -> Result<Self, ServerError> {
-		socket.set_nodelay(true)?;
+		let socket_ref = SockRef::from(&socket);
+
+		socket_ref.set_nodelay(true)?;
+		socket_ref.set_quickack(true)?;
 
 		let connection = Connection {
 			stream: BufStream::new(socket),
