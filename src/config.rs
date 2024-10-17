@@ -1,6 +1,7 @@
 use std::{
 	env,
 	include_str,
+	path::Path,
 	hash::{DefaultHasher, Hash, Hasher},
 };
 
@@ -38,7 +39,10 @@ enum ConfigValue {
 }
 
 impl Config {
-	pub fn from_file(path: &str) -> Result<Self, ServerError> {
+	pub fn from_file<P>(path: P) -> Result<Self, ServerError>
+	where
+		P: AsRef<Path>,
+	{
 		let reader = match TextReader::from_path(path) {
 			Ok(reader) => reader,
 			Err(_) => return Err(ServerError::InvalidConfig),

@@ -5,6 +5,7 @@ mod server;
 mod connection;
 mod config;
 
+use std::path::PathBuf;
 use clap::Parser;
 use dotenv::dotenv;
 use log::error;
@@ -27,7 +28,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 #[command(author, version, about, long_about = None)]
 struct Args {
 	#[arg(short, long)]
-	config: Option<String>,
+	config: Option<PathBuf>,
 }
 
 fn main() {
