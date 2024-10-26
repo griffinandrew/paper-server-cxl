@@ -77,7 +77,7 @@ fn main() {
 
 fn init_logging() {
 	let config_str = std::include_str!("../log4rs.yaml");
-	let config = serde_yaml::from_str::<log4rs::config::RawConfig>(config_str)
+	let config = serde_yml::from_str::<log4rs::config::RawConfig>(config_str)
 		.expect("Invalid log config.");
 
 	log4rs::init_raw_config(config).unwrap();
