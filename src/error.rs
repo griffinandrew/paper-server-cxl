@@ -5,7 +5,7 @@ use paper_cache::CacheError;
 #[derive(Debug, PartialEq, Error)]
 pub enum ServerError {
 	#[error(transparent)]
-	CacheError(#[from] paper_cache::CacheError),
+	CacheError(#[from] CacheError),
 
 	#[error("could not establish a connection")]
 	InvalidAddress,
