@@ -6,23 +6,20 @@ mod connection;
 mod config;
 
 use std::path::PathBuf;
+use mimalloc::MiMalloc;
 use clap::Parser;
 use dotenv::dotenv;
 use log::error;
 use paper_cache::PaperCache;
 use paper_utils::stream::Buffer;
 
-#[cfg(not(target_env = "msvc"))]
-use tikv_jemallocator::Jemalloc;
-
 use crate::{
 	server::{Server, NoHasher},
 	config::Config,
 };
 
-#[cfg(not(target_env = "msvc"))]
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: MiMalloc = MiMalloc;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
