@@ -4,12 +4,10 @@ use std::{
 		atomic::{AtomicUsize, Ordering},
 	},
 	io::Write,
-	hash::{DefaultHasher, Hash, Hasher, BuildHasherDefault},
 	net::{TcpListener, TcpStream, Shutdown},
 };
 
 use log::{info, warn, error};
-use nohash_hasher::NoHashHasher;
 use kwik::thread_pool::ThreadPool;
 use paper_cache::{PaperCache, PaperPolicy};
 
@@ -26,9 +24,7 @@ use crate::{
 	config::Config,
 };
 
-pub type NoHasher = BuildHasherDefault<NoHashHasher<u64>>;
-
-type Cache = PaperCache<u64, Buffer, NoHasher>;
+pub type Cache = PaperCache<Buffer, Buffer>;
 type SheetResult = Result<Sheet, ServerError>;
 
 pub struct Server {
@@ -207,9 +203,7 @@ fn handle_auth(connection: &mut Connection, token: &Buffer) -> SheetResult {
 }
 
 fn handle_get(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
-	let key = hash(key);
-
-	cache.get(key)
+	cache.get(&key)
 		.map(|object|
 			SheetBuilder::new()
 				.write_bool(true)
@@ -225,8 +219,6 @@ fn handle_set(
 	value: Buffer,
 	ttl: Option<u32>,
 ) -> SheetResult {
-	let key = hash(key);
-
 	cache.set(key, value, ttl)
 		.map(|_|
 			SheetBuilder::new()
@@ -237,9 +229,7 @@ fn handle_set(
 }
 
 fn handle_del(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
-	let key = hash(key);
-
-	cache.del(key)
+	cache.del(&key)
 		.map(|_|
 			SheetBuilder::new()
 				.write_bool(true)
@@ -249,20 +239,16 @@ fn handle_del(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 }
 
 fn handle_has(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
-	let key = hash(key);
-
 	let sheet = SheetBuilder::new()
 		.write_bool(true)
-		.write_bool(cache.has(key))
+		.write_bool(cache.has(&key))
 		.into_sheet();
 
 	Ok(sheet)
 }
 
 fn handle_peek(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
-	let key = hash(key);
-
-	cache.peek(key)
+	cache.peek(&key)
 		.map(|object|
 			SheetBuilder::new()
 				.write_bool(true)
@@ -273,9 +259,7 @@ fn handle_peek(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 }
 
 fn handle_ttl(cache: &Arc<Cache>, key: Buffer, ttl: Option<u32>) -> SheetResult {
-	let key = hash(key);
-
-	cache.ttl(key, ttl)
+	cache.ttl(&key, ttl)
 		.map(|_|
 			SheetBuilder::new()
 				.write_bool(true)
@@ -285,9 +269,7 @@ fn handle_ttl(cache: &Arc<Cache>, key: Buffer, ttl: Option<u32>) -> SheetResult 
 }
 
 fn handle_size(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
-	let key = hash(key);
-
-	cache.size(key)
+	cache.size(&key)
 		.map(|size|
 			SheetBuilder::new()
 				.write_bool(true)
@@ -350,10 +332,4 @@ fn handle_stats(cache: &Arc<Cache>) -> SheetResult {
 		.into_sheet();
 
 	Ok(sheet)
-}
-
-fn hash(key: Buffer) -> u64 {
-	let mut s = DefaultHasher::new();
-	key.hash(&mut s);
-	s.finish()
 }

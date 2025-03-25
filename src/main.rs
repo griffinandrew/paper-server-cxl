@@ -9,14 +9,12 @@ use std::path::PathBuf;
 use clap::Parser;
 use dotenv::dotenv;
 use log::error;
-use paper_cache::PaperCache;
-use paper_utils::stream::Buffer;
 
 #[cfg(not(target_env = "msvc"))]
 use tikv_jemallocator::Jemalloc;
 
 use crate::{
-	server::{Server, NoHasher},
+	server::{Server, Cache},
 	config::Config,
 };
 
@@ -50,10 +48,9 @@ fn main() {
 		None => Config::default(),
 	};
 
-	let cache = PaperCache::<u64, Buffer, NoHasher>::with_hasher(
+	let cache = Cache::new(
 		config.max_size(),
 		config.policy(),
-		NoHasher::default(),
 	).expect("Could not configure cache.");
 
 	let cache_version = cache.version();
