@@ -4,17 +4,17 @@ use std::{
 		atomic::{AtomicUsize, Ordering},
 	},
 	io::Write,
+	str::FromStr,
 	net::{TcpListener, TcpStream, Shutdown},
 };
 
 use log::{info, warn, error};
 use kwik::thread_pool::ThreadPool;
-use paper_cache::{PaperCache, PaperPolicy};
+use paper_cache::{PaperCache, PaperPolicy, CacheError};
 
 use paper_utils::{
 	stream::Buffer,
 	sheet::{Sheet, SheetBuilder},
-	policy::PolicyByte,
 };
 
 use crate::{
@@ -135,7 +135,7 @@ impl Server {
 				(true, Command::Wipe) => handle_wipe(&cache),
 
 				(true, Command::Resize(size)) => handle_resize(&cache, size),
-				(true, Command::Policy(policy)) => handle_policy(&cache, policy),
+				(true, Command::Policy(policy_str)) => handle_policy(&cache, policy_str),
 
 				(true, Command::Stats) => handle_stats(&cache),
 
@@ -203,7 +203,8 @@ fn handle_auth(connection: &mut Connection, token: &Buffer) -> SheetResult {
 }
 
 fn handle_get(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
-	cache.get(&key)
+	cache
+		.get(&key)
 		.map(|object|
 			SheetBuilder::new()
 				.write_bool(true)
@@ -219,7 +220,8 @@ fn handle_set(
 	value: Buffer,
 	ttl: Option<u32>,
 ) -> SheetResult {
-	cache.set(key, value, ttl)
+	cache
+		.set(key, value, ttl)
 		.map(|_|
 			SheetBuilder::new()
 				.write_bool(true)
@@ -229,7 +231,8 @@ fn handle_set(
 }
 
 fn handle_del(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
-	cache.del(&key)
+	cache
+		.del(&key)
 		.map(|_|
 			SheetBuilder::new()
 				.write_bool(true)
@@ -248,7 +251,8 @@ fn handle_has(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 }
 
 fn handle_peek(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
-	cache.peek(&key)
+	cache
+		.peek(&key)
 		.map(|object|
 			SheetBuilder::new()
 				.write_bool(true)
@@ -259,7 +263,8 @@ fn handle_peek(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 }
 
 fn handle_ttl(cache: &Arc<Cache>, key: Buffer, ttl: Option<u32>) -> SheetResult {
-	cache.ttl(&key, ttl)
+	cache
+		.ttl(&key, ttl)
 		.map(|_|
 			SheetBuilder::new()
 				.write_bool(true)
@@ -269,7 +274,8 @@ fn handle_ttl(cache: &Arc<Cache>, key: Buffer, ttl: Option<u32>) -> SheetResult 
 }
 
 fn handle_size(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
-	cache.size(&key)
+	cache
+		.size(&key)
 		.map(|size|
 			SheetBuilder::new()
 				.write_bool(true)
@@ -280,7 +286,8 @@ fn handle_size(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 }
 
 fn handle_wipe(cache: &Arc<Cache>) -> SheetResult {
-	cache.wipe()
+	cache
+		.wipe()
 		.map(|_|
 			SheetBuilder::new()
 				.write_bool(true)
@@ -290,7 +297,8 @@ fn handle_wipe(cache: &Arc<Cache>) -> SheetResult {
 }
 
 fn handle_resize(cache: &Arc<Cache>, size: u64) -> SheetResult {
-	cache.resize(size)
+	cache
+		.resize(size)
 		.map(|_|
 			SheetBuilder::new()
 				.write_bool(true)
@@ -299,8 +307,15 @@ fn handle_resize(cache: &Arc<Cache>, size: u64) -> SheetResult {
 		.map_err(ServerError::CacheError)
 }
 
-fn handle_policy(cache: &Arc<Cache>, policy: PaperPolicy) -> SheetResult {
-	cache.policy(policy)
+fn handle_policy(cache: &Arc<Cache>, policy_str: String) -> SheetResult {
+	let Ok(policy) = PaperPolicy::from_str(&policy_str) else {
+		return Err(ServerError::CacheError(
+			CacheError::InvalidPolicy
+		));
+	};
+
+	cache
+		.policy(policy)
 		.map(|_|
 			SheetBuilder::new()
 				.write_bool(true)
@@ -312,13 +327,6 @@ fn handle_policy(cache: &Arc<Cache>, policy: PaperPolicy) -> SheetResult {
 fn handle_stats(cache: &Arc<Cache>) -> SheetResult {
 	let stats = cache.stats();
 
-	let policy_byte = match stats.get_policy() {
-		PaperPolicy::Lfu => PolicyByte::LFU,
-		PaperPolicy::Fifo => PolicyByte::FIFO,
-		PaperPolicy::Lru => PolicyByte::LRU,
-		PaperPolicy::Mru => PolicyByte::MRU,
-	};
-
 	let sheet = SheetBuilder::new()
 		.write_bool(true)
 		.write_u64(stats.get_max_size())
@@ -327,7 +335,7 @@ fn handle_stats(cache: &Arc<Cache>) -> SheetResult {
 		.write_u64(stats.get_total_sets())
 		.write_u64(stats.get_total_dels())
 		.write_f64(stats.get_miss_ratio())
-		.write_u8(policy_byte)
+		.write_str(&stats.get_policy().to_string())
 		.write_u64(stats.get_uptime())
 		.into_sheet();
 

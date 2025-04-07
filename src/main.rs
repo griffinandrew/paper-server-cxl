@@ -50,6 +50,7 @@ fn main() {
 
 	let cache = Cache::new(
 		config.max_size(),
+		config.policies(),
 		config.policy(),
 	).expect("Could not configure cache.");
 

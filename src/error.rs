@@ -87,5 +87,9 @@ fn get_cache_error_code(error: &CacheError) -> u8 {
 		CacheError::ExceedingValueSize	=> 3,
 
 		CacheError::ZeroCacheSize		=> 4,
+
+		CacheError::DuplicatePolicies	=> 5,
+		CacheError::UnconfiguredPolicy	=> 6,
+		CacheError::InvalidPolicy		=> 7,
 	}
 }

@@ -1,6 +1,7 @@
 use std::{
 	env,
 	include_str,
+	str::FromStr,
 	path::Path,
 	hash::{DefaultHasher, Hash, Hasher},
 };
@@ -21,6 +22,7 @@ pub struct Config {
 	port: u32,
 
 	max_size: u64,
+	policies: Vec<PaperPolicy>,
 	policy: PaperPolicy,
 
 	max_connections: usize,
@@ -32,6 +34,7 @@ enum ConfigValue {
 	Port(u32),
 
 	MaxSize(u64),
+	PoliciesItem(PaperPolicy),
 	Policy(PaperPolicy),
 
 	MaxConnections(usize),
@@ -74,6 +77,10 @@ impl Config {
 		self.max_size
 	}
 
+	pub fn policies(&self) -> &[PaperPolicy] {
+		&self.policies
+	}
+
 	pub fn policy(&self) -> PaperPolicy {
 		self.policy
 	}
@@ -101,6 +108,7 @@ impl Config {
 			"port" => parse_port(&token_value),
 
 			"max_size" => parse_max_size(&token_value),
+			"policies[]" => parse_policies_item(&token_value),
 			"policy" => parse_policy(&token_value),
 
 			"max_connections" => parse_max_connections(&token_value),
@@ -115,6 +123,7 @@ impl Config {
 				ConfigValue::Port(port) => config.port = port,
 
 				ConfigValue::MaxSize(max_size) => config.max_size = max_size,
+				ConfigValue::PoliciesItem(policy) => config.policies.push(policy),
 				ConfigValue::Policy(policy) => config.policy = policy,
 
 				ConfigValue::MaxConnections(max_connections) => config.max_connections = max_connections,
@@ -153,6 +162,7 @@ fn init_uninitialized_config() -> Config {
 		port: 0,
 
 		max_size: 0,
+		policies: Vec::new(),
 		policy: PaperPolicy::Lfu,
 
 		max_connections: 0,
@@ -191,17 +201,18 @@ fn parse_max_size(value: &str) -> Result<ConfigValue, ServerError> {
 	}
 }
 
+fn parse_policies_item(value: &str) -> Result<ConfigValue, ServerError> {
+	match PaperPolicy::from_str(value) {
+		Ok(policy) => Ok(ConfigValue::PoliciesItem(policy)),
+		Err(_) => Err(ServerError::InvalidConfigPolicy(value.into())),
+	}
+}
+
 fn parse_policy(value: &str) -> Result<ConfigValue, ServerError> {
-	let policy = match value {
-		"lfu" => PaperPolicy::Lfu,
-		"fifo" => PaperPolicy::Fifo,
-		"lru" => PaperPolicy::Lru,
-		"mru" => PaperPolicy::Mru,
-
-		_ => return Err(ServerError::InvalidConfigPolicy(value.into())),
-	};
-
-	Ok(ConfigValue::Policy(policy))
+	match PaperPolicy::from_str(value) {
+		Ok(policy) => Ok(ConfigValue::Policy(policy)),
+		Err(_) => Err(ServerError::InvalidConfigPolicy(value.into())),
+	}
 }
 
 fn parse_max_connections(value: &str) -> Result<ConfigValue, ServerError> {

@@ -1,10 +1,8 @@
 use std::net::TcpStream;
-use paper_cache::PaperPolicy;
 
 use paper_utils::{
 	stream::{Buffer, StreamReader, StreamError},
 	command::CommandByte,
-	policy::PolicyByte,
 };
 
 pub enum Command {
@@ -25,7 +23,7 @@ pub enum Command {
 	Wipe,
 
 	Resize(u64),
-	Policy(PaperPolicy),
+	Policy(String),
 
 	Stats,
 }
@@ -99,18 +97,8 @@ impl Command {
 			},
 
 			CommandByte::POLICY => {
-				let byte = reader.read_u8()?;
-
-				let policy = match byte {
-					PolicyByte::LFU => PaperPolicy::Lfu,
-					PolicyByte::FIFO => PaperPolicy::Fifo,
-					PolicyByte::LRU => PaperPolicy::Lru,
-					PolicyByte::MRU => PaperPolicy::Mru,
-
-					_ => return Err(StreamError::InvalidData),
-				};
-
-				Ok(Command::Policy(policy))
+				let policy_str = reader.read_string()?;
+				Ok(Command::Policy(policy_str))
 			},
 
 			CommandByte::STATS => Ok(Command::Stats),

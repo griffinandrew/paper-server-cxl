@@ -7,12 +7,20 @@ port=3145
 # Maximum size of the cache specified in bytes
 max_size=2GiB
 
-# The initial eviction policy of the cache
+# The configured eviction policies of the cache
 # Possible values:
 # - lfu
 # - fifo
 # - lru
 # - mru
+# - 2q-<K_in>-<K_out>
+policies[]=lfu
+policies[]=fifo
+policies[]=lru
+policies[]=mru
+policies[]=2q-0.25-0.5
+
+# The initial eviction policy of the cache
 policy=lfu
 
 # Maximum number of concurrent connections
