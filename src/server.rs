@@ -336,6 +336,7 @@ fn handle_stats(cache: &Arc<Cache>) -> SheetResult {
 		.write_u64(stats.get_total_dels())
 		.write_f64(stats.get_miss_ratio())
 		.write_str(&stats.get_policy().to_string())
+		.write_bool(stats.is_auto_policy())
 		.write_u64(stats.get_uptime())
 		.into_sheet();
 

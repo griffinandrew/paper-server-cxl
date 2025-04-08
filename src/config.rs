@@ -203,8 +203,8 @@ fn parse_max_size(value: &str) -> Result<ConfigValue, ServerError> {
 
 fn parse_policies_item(value: &str) -> Result<ConfigValue, ServerError> {
 	match PaperPolicy::from_str(value) {
-		Ok(policy) => Ok(ConfigValue::PoliciesItem(policy)),
-		Err(_) => Err(ServerError::InvalidConfigPolicy(value.into())),
+		Ok(policy) if !policy.is_auto() => Ok(ConfigValue::PoliciesItem(policy)),
+		_ => Err(ServerError::InvalidConfigPolicy(value.into())),
 	}
 }
 

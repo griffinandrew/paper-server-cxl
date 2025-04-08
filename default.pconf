@@ -21,7 +21,7 @@ policies[]=mru
 policies[]=2q-0.25-0.5
 
 # The initial eviction policy of the cache
-policy=lfu
+policy=auto
 
 # Maximum number of concurrent connections
 max_connections=50
