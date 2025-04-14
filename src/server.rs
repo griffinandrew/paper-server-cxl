@@ -181,7 +181,7 @@ fn handle_ping() -> SheetResult {
 fn handle_version(cache: &Arc<Cache>) -> SheetResult {
 	let sheet = SheetBuilder::new()
 		.write_bool(true)
-		.write_str(&cache.version())
+		.write_str(cache.version())
 		.into_sheet();
 
 	Ok(sheet)
@@ -331,11 +331,12 @@ fn handle_stats(cache: &Arc<Cache>) -> SheetResult {
 		.write_bool(true)
 		.write_u64(stats.get_max_size())
 		.write_u64(stats.get_used_size())
+		.write_u64(stats.get_num_objects())
 		.write_u64(stats.get_total_gets())
 		.write_u64(stats.get_total_sets())
 		.write_u64(stats.get_total_dels())
 		.write_f64(stats.get_miss_ratio())
-		.write_str(&stats.get_policy().to_string())
+		.write_str(stats.get_policy().to_string())
 		.write_bool(stats.is_auto_policy())
 		.write_u64(stats.get_uptime())
 		.into_sheet();
