@@ -16,6 +16,7 @@ max_size=2GiB
 # - 2q-<K_in>-<K_out>
 policies[]=lfu
 policies[]=fifo
+policies[]=clock
 policies[]=lru
 policies[]=mru
 policies[]=2q-0.25-0.5
