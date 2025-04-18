@@ -11,9 +11,12 @@ max_size=2GiB
 # Possible values:
 # - lfu
 # - fifo
+# - clock
+# - sieve
 # - lru
 # - mru
 # - 2q-<K_in>-<K_out>
+# - s3-fifo-<ratio>
 policies[]=lfu
 policies[]=fifo
 policies[]=clock
