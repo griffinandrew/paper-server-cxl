@@ -17,9 +17,11 @@ max_size=2GiB
 policies[]=lfu
 policies[]=fifo
 policies[]=clock
+policies[]=sieve
 policies[]=lru
 policies[]=mru
 policies[]=2q-0.25-0.5
+policies[]=s3-fifo-0.1
 
 # The initial eviction policy of the cache
 policy=auto
