@@ -327,7 +327,7 @@ fn handle_policy(cache: &Arc<Cache>, policy_str: String) -> SheetResult {
 fn handle_stats(cache: &Arc<Cache>) -> SheetResult {
 	let stats = cache.stats();
 
-	let sheet = SheetBuilder::new()
+	let mut sheet_builder = SheetBuilder::new()
 		.write_bool(true)
 		.write_u64(stats.get_max_size())
 		.write_u64(stats.get_used_size())
@@ -336,6 +336,13 @@ fn handle_stats(cache: &Arc<Cache>) -> SheetResult {
 		.write_u64(stats.get_total_sets())
 		.write_u64(stats.get_total_dels())
 		.write_f64(stats.get_miss_ratio())
+		.write_u32(stats.get_policies().len() as u32);
+
+	for policy in stats.get_policies() {
+		sheet_builder = sheet_builder.write_str(policy.to_string());
+	}
+
+	let sheet = sheet_builder
 		.write_str(stats.get_policy().to_string())
 		.write_bool(stats.is_auto_policy())
 		.write_u64(stats.get_uptime())
