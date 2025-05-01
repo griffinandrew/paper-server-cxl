@@ -16,6 +16,7 @@ max_size=2GiB
 # - lru
 # - mru
 # - 2q-<K_in>-<K_out>
+# - arc
 # - s3-fifo-<ratio>
 policies[]=lfu
 policies[]=fifo
@@ -24,6 +25,7 @@ policies[]=sieve
 policies[]=lru
 policies[]=mru
 policies[]=2q-0.25-0.5
+policies[]=arc
 policies[]=s3-fifo-0.1
 
 # The initial eviction policy of the cache
