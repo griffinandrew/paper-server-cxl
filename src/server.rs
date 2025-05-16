@@ -81,7 +81,7 @@ impl Server {
 						.map(|address| address.to_string())
 						.unwrap_or("-1".into());
 
-					info!("Connected: {}", address);
+					info!("Connected: {address}");
 
 					success_handshake(&mut stream)?;
 
@@ -93,7 +93,7 @@ impl Server {
 						num_connections.fetch_add(1, Ordering::Relaxed);
 						Server::handle_connection(connection, cache);
 
-						info!("Disconnected: {}", address);
+						info!("Disconnected: {address}");
 						num_connections.fetch_sub(1, Ordering::Relaxed);
 					});
 				},
