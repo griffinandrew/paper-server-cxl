@@ -1,6 +1,6 @@
 [package]
 name = "paper-server"
-version = "1.9.7"
+version = "1.9.8"
 edition = "2024"
 license = "AGPL-3.0"
 description = "An in-memory cache with dynamic eviction policies."
@@ -11,9 +11,9 @@ keywords = ["caching", "PaperCache"]
 categories = ["caching"]
 
 [dependencies]
-clap = { version = "4.5.40", features = ["derive"] }
+clap = { version = "4.5.41", features = ["derive"] }
 paper-utils = "1.2.5"
-paper-cache = "1.11.8"
+paper-cache = "1.11.9"
 kwik = "1.18.6"
 byteorder = "1.5.0"
 thiserror = "2.0.12"
