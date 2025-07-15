@@ -54,8 +54,25 @@ impl Command {
 			},
 
 			CommandByte::SET => {
+				// Simulate latency for the SET command
+				// latency is both the time it takes to read the key and value, not just the vakue 
+				// this simualtes all objects in CXL tier.... 
+				let start = std::time::Instant::now();
 				let key = reader.read_buf()?;
 				let value = reader.read_buf()?;
+				let elapsed = start.elapsed().as_nanos() as u64;
+
+				// Spin for the duration of recorded access
+				let end = Instant::now() + Duration::from_nanos(elapsed);
+				while black_box(Instant::now()) < black_box(end) {
+					//println!("CxlPtr deref spin loop");
+					black_box(std::hint::spin_loop());
+				}
+				//ensure that the spin loop is actually triggering and running for double the time
+				let total_duration = start.elapsed().as_nanos() as u64;
+				let expected_time = elapsed * 2;
+				black_box(assert!(total_duration >= expected_time, "CxlPtr deref took less time than expected IN SERVER: {} < {}", total_duration, expected_time));
+
 
 				let ttl = match reader.read_u32()? {
 					0 => None,
