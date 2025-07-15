@@ -32,7 +32,7 @@ pub enum Command {
 	Resize(u64),
 	Policy(String),
 
-	Stats,
+	Status,
 }
 
 impl Command {
@@ -108,7 +108,7 @@ impl Command {
 				Ok(Command::Policy(policy_str))
 			},
 
-			CommandByte::STATS => Ok(Command::Stats),
+			CommandByte::STATUS => Ok(Command::Status),
 
 			_ => Err(StreamError::InvalidData),
 		}

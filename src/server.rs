@@ -144,7 +144,7 @@ impl Server {
 				(true, Command::Resize(size)) => handle_resize(&cache, size),
 				(true, Command::Policy(policy_str)) => handle_policy(&cache, policy_str),
 
-				(true, Command::Stats) => handle_stats(&cache),
+				(true, Command::Status) => handle_status(&cache),
 
 				_ => Err(ServerError::Unauthorized),
 			};
@@ -331,28 +331,31 @@ fn handle_policy(cache: &Arc<Cache>, policy_str: String) -> SheetResult {
 		.map_err(ServerError::CacheError)
 }
 
-fn handle_stats(cache: &Arc<Cache>) -> SheetResult {
-	let stats = cache.stats();
+fn handle_status(cache: &Arc<Cache>) -> SheetResult {
+	let status = cache.status().map_err(ServerError::CacheError)?;
 
 	let mut sheet_builder = SheetBuilder::new()
 		.write_bool(true)
-		.write_u64(stats.get_max_size())
-		.write_u64(stats.get_used_size())
-		.write_u64(stats.get_num_objects())
-		.write_u64(stats.get_total_gets())
-		.write_u64(stats.get_total_sets())
-		.write_u64(stats.get_total_dels())
-		.write_f64(stats.get_miss_ratio())
-		.write_u32(stats.get_policies().len() as u32);
+		.write_u32(status.pid())
+		.write_u64(status.max_size())
+		.write_u64(status.used_size())
+		.write_u64(status.num_objects())
+		.write_u64(status.rss())
+		.write_u64(status.hwm())
+		.write_u64(status.total_gets())
+		.write_u64(status.total_sets())
+		.write_u64(status.total_dels())
+		.write_f64(status.miss_ratio())
+		.write_u32(status.policies().len() as u32);
 
-	for policy in stats.get_policies() {
+	for policy in status.policies() {
 		sheet_builder = sheet_builder.write_str(policy.to_string());
 	}
 
 	let sheet = sheet_builder
-		.write_str(stats.get_policy().to_string())
-		.write_bool(stats.is_auto_policy())
-		.write_u64(stats.get_uptime())
+		.write_str(status.policy().to_string())
+		.write_bool(status.is_auto_policy())
+		.write_u64(status.uptime())
 		.into_sheet();
 
 	Ok(sheet)
