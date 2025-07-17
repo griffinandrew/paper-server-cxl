@@ -61,7 +61,7 @@ impl Command {
 				// Simulate latency for the SET command
 				// latency is both the time it takes to read the key and value, not just the vakue 
 				// this simualtes all objects in CXL tier.... 
-				let start = std::time::Instant::now();
+				let start = Instant::now();
 				let key = reader.read_buf()?;
 				let value = reader.read_buf()?;
 				let elapsed = start.elapsed().as_nanos() as u64;
