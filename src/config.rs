@@ -156,7 +156,7 @@ impl Default for Config {
 
 		for line in line_iter {
 			Config::parse_line(&mut config, &line)
-				.expect("An error occured when parsing default config.");
+				.expect("An error occured when parsing default config");
 		}
 
 		config

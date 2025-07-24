@@ -75,7 +75,7 @@ impl Server {
 			match stream {
 				Ok(mut stream) => {
 					if self.num_connections.load(Ordering::Relaxed) == self.max_connections {
-						warn!("Maximum number of connections exceeded.");
+						warn!("Maximum number of connections exceeded");
 
 						max_connections_reject_handshake(&mut stream)?;
 
@@ -152,7 +152,7 @@ impl Server {
 			let sheet = sheet_result.unwrap_or_else(|err| err.to_sheet());
 
 			if (connection.send_response(sheet.serialize())).is_err() {
-				error!("Could not send response to command.");
+				error!("Could not send response to command");
 			}
 		}
 	}

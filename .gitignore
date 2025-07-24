@@ -18,3 +18,6 @@ Cargo.lock
 
 *.pconf
 !default.pconf
+
+*.yaml
+!log4rs.yaml
