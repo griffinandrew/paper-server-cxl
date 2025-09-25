@@ -17,17 +17,27 @@ use clap::Parser;
 use dotenv::dotenv;
 use log::error;
 
+
+mod allocator;
+use allocator::FarTierAllocator;
+mod memkind_bindings;
+
+
+/*
 #[cfg(not(target_env = "msvc"))]
 use tikv_jemallocator::Jemalloc;
+*/
 
 use crate::{
 	server::{Server, Cache},
 	config::Config,
 };
 
-#[cfg(not(target_env = "msvc"))]
+
+#[cfg(not(target_env = "msvc"))] //not sure if this is needed
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+//static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: FarTierAllocator = FarTierAllocator;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -39,6 +49,9 @@ struct Args {
 fn main() {
 	dotenv().ok();
 	init_logging();
+
+	//add env var to set MEMKIND_DAX_KMEM_NODES=0
+	unsafe {std::env::set_var("MEMKIND_DAX_KMEM_NODES", "0");}
 
 	let args = Args::parse();
 
