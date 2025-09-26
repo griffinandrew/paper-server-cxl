@@ -1,27 +1,32 @@
 [package]
 name = "paper-server"
-version = "1.9.11"
+version = "1.9.9"
 edition = "2024"
 license = "AGPL-3.0"
 description = "An in-memory cache with dynamic eviction policies."
-repository = "https://github.com/PaperCache/paper-server.git"
+repository = "https://github.com/griffinandrew/paper-server-cxl.git"
+branch = "main"
 readme = "README.md"
 homepage = "https://papercache.io"
 keywords = ["caching", "PaperCache"]
 categories = ["caching"]
 
 [dependencies]
-clap = { version = "4.5.47", features = ["derive"] }
+clap = { version = "4.5.41", features = ["derive"] }
 paper-utils = "1.2.6"
-paper-cache = "1.11.12"
-kwik = "1.18.7"
+#paper-cache = "1.11.10"
+paper-cache = { git = "ssh://git@github.com/griffinandrew/paper-cache-cxl.git", branch = "main" }
+kwik = "1.18.6"
 byteorder = "1.5.0"
-thiserror = "2.0.16"
+thiserror = "2.0.12"
 log4rs = "1.3.0"
-log = "0.4.28"
+log = "0.4.27"
 parse-size = "1.1.0"
 dotenv = "0.15.0"
 serde_yaml = "0.9.34"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { version = "0.6", features = ["background_threads"] }
+
+# [build-dependencies]
+# bindgen = "0.72.1"
