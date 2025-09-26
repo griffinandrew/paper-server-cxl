@@ -34,7 +34,7 @@ use crate::{
 };
 
 
-#[cfg(not(target_env = "msvc"))] //not sure if this is needed
+//#[cfg(not(target_env = "msvc"))] //not sure if this is needed
 #[global_allocator]
 //static GLOBAL: Jemalloc = Jemalloc;
 static GLOBAL: FarTierAllocator = FarTierAllocator;
@@ -49,9 +49,6 @@ struct Args {
 fn main() {
 	dotenv().ok();
 	init_logging();
-
-	//add env var to set MEMKIND_DAX_KMEM_NODES=0
-	unsafe {std::env::set_var("MEMKIND_DAX_KMEM_NODES", "0");}
 
 	let args = Args::parse();
 
