@@ -5,9 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use std::time::Instant;
-use std::time::Duration;
-use std::hint::black_box;
 
 use std::net::TcpStream;
 
@@ -61,12 +58,13 @@ impl Command {
 				// Simulate latency for the SET command
 				// latency is both the time it takes to read the key and value, not just the vakue 
 				// this simualtes all objects in CXL tier.... 
-				let start = Instant::now();
+				//let start = Instant::now();
 				let key = reader.read_buf()?;
 				let value = reader.read_buf()?;
-				let elapsed = start.elapsed().as_nanos() as u64;
+				//let elapsed = start.elapsed().as_nanos() as u64;
 
 				// Spin for the duration of recorded access
+				/*
 				let end = Instant::now() + Duration::from_nanos(elapsed);
 				while black_box(Instant::now()) < black_box(end) {
 					//println!("CxlPtr deref spin loop");
@@ -76,6 +74,7 @@ impl Command {
 				let total_duration = start.elapsed().as_nanos() as u64;
 				let expected_time = elapsed * 2;
 				black_box(assert!(total_duration >= expected_time, "CxlPtr deref took less time than expected IN SERVER: {} < {}", total_duration, expected_time));
+				*/
 
 
 				let ttl = match reader.read_u32()? {
