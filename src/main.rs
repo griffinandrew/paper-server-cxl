@@ -17,17 +17,23 @@ use clap::Parser;
 use dotenv::dotenv;
 use log::error;
 
-#[cfg(not(target_env = "msvc"))]
-use tikv_jemallocator::Jemalloc;
+//#[cfg(not(target_env = "msvc"))]
+//use tikv_jemallocator::Jemalloc;
 
 use crate::{
 	server::{Server, Cache},
 	config::Config,
 };
 
-#[cfg(not(target_env = "msvc"))]
+mod allocator;
+use allocator::UmfGlobal;
+
+//#[cfg(not(target_env = "msvc"))]
+//#[global_allocator]
+//static GLOBAL: Jemalloc = Jemalloc;
+
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: UmfGlobal = UmfGlobal;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
