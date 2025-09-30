@@ -4,10 +4,11 @@ use std::ptr::null_mut;
 
 // Import your FFI bindings.
 mod allocator_bindings {
-    include!("umf_bindings.rs");
+    include!("umf_allocator_bindings.rs");
 }
 
-struct UmfGlobal;
+
+pub struct UmfGlobal;
 
 static INIT: Once = Once::new();
 

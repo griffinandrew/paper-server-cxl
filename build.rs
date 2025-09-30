@@ -5,6 +5,8 @@ use std::path::PathBuf;
 fn main() {
     println!("cargo:rerun-if-changed=wrapper.h");
     println!("cargo:rustc-link-lib=umf");
+    println!("cargo:rustc-link-search=native=/home/griffin/libs/unified-memory-framework/lib");
+    println!("cargo:rustc-link-lib=umf_allocator");
 
     // Generate bindings
     let bindings = bindgen::Builder::default()
@@ -21,4 +23,11 @@ fn main() {
         .expect("Couldn't write bindings!");
 
     println!("DONE");
+
+    cc::Build::new()
+        .file("umf_allocator/umf_allocator_wrapper.c")
+        .include("umf_allocator")
+        .compile("umf_allocator"); 
+
+    println!("Compiled umf_allocator.c");
 }
