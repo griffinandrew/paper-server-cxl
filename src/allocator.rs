@@ -15,12 +15,16 @@ static INIT: Once = Once::new();
 static DRAM_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
 
 impl HybridGlobal {
-    const DRAM_LIMIT: usize = 1024 * 1024 * 1024; // 1 GiB
+    //const DRAM_LIMIT: usize = 1024 * 1024 * 1024; // 1 GiB
+
+    const DRAM_LIMIT: usize = 1024 * 1024 * 500; //500 mib 
+
+
 
     /// Should this allocation go to DRAM or PMEM?
     fn should_use_dram(size: usize) -> bool {
         let current = DRAM_ALLOCATED.load(Ordering::Relaxed);
-        current + size <= Self::DRAM_LIMIT - 1024 * 1024 // leave small buffer
+        current + size <= Self::DRAM_LIMIT // leave small buffer
     }
 }
 
@@ -107,6 +111,111 @@ unsafe impl GlobalAlloc for HybridGlobal {
         }
     }
 }
+
+
+//without alignment
+/*
+use core::alloc::{GlobalAlloc, Layout};
+use std::sync::{Once, atomic::{AtomicUsize, Ordering}};
+use std::ptr;
+use log::info;
+use tikv_jemallocator::Jemalloc;
+
+mod allocator_bindings {
+    include!("umf_allocator_bindings.rs"); // your FFI bindings to UMF
+}
+
+/// Hybrid allocator: first DRAM up to a limit, then PMEM
+pub struct HybridGlobal;
+
+static INIT: Once = Once::new();
+static DRAM_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
+
+impl HybridGlobal {
+    const DRAM_LIMIT: usize = 1024 * 1024 * 1024; // 1 GiB
+
+    /// Should this allocation go to DRAM or PMEM?
+    fn should_use_dram(size: usize) -> bool {
+        let current = DRAM_ALLOCATED.load(Ordering::Relaxed);
+        current + size <= Self::DRAM_LIMIT - 1024 * 1024 // leave small buffer
+    }
+}
+
+/// Header stored before each allocation
+#[repr(C)]
+struct Header {
+    orig_ptr: usize, // pointer returned by backend allocator
+    tag: u8,         // 0 = DRAM, 1 = PMEM
+    _pad: [u8; 7],   // pad to 16 bytes for alignment
+}
+const HDR_SIZE: usize = std::mem::size_of::<Header>();
+
+unsafe impl GlobalAlloc for HybridGlobal {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let size = layout.size();
+        let align = layout.align();
+
+        // Total size includes header
+        let total_size = size + HDR_SIZE;
+
+        let (base, tag) = if Self::should_use_dram(size) {
+            let jem = Jemalloc;
+            let ptr = jem.alloc(Layout::from_size_align_unchecked(total_size, align));
+            if ptr.is_null() { return ptr::null_mut(); }
+            DRAM_ALLOCATED.fetch_add(size, Ordering::SeqCst);
+            (ptr, 0u8)
+        } else {
+            INIT.call_once(|| {
+                allocator_bindings::umf_allocator_init(
+                    b"/dev/dax0.0\0".as_ptr() as *const i8,
+                    266_352_984_064, // example PMEM size
+                );
+            });
+            let ptr = allocator_bindings::umf_alloc(total_size) as *mut u8;
+            if ptr.is_null() {
+                // fallback to DRAM
+                let jem = Jemalloc;
+                let ptr = jem.alloc(Layout::from_size_align_unchecked(total_size, align));
+                if ptr.is_null() { return ptr::null_mut(); }
+                DRAM_ALLOCATED.fetch_add(size, Ordering::SeqCst);
+                (ptr, 0u8)
+            } else {
+                (ptr, 1u8)
+            }
+        };
+
+        // Store header directly at base
+        let hdr_ptr = base as *mut Header;
+        ptr::write(hdr_ptr, Header { orig_ptr: base as usize, tag, _pad: [0;7] });
+
+        // Return pointer immediately after header
+        (base as *mut u8).add(HDR_SIZE)
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        if ptr.is_null() { return; }
+
+        // Retrieve header from just before the user pointer
+        let hdr_ptr = (ptr as *mut u8).sub(HDR_SIZE) as *mut Header;
+        let header = ptr::read(hdr_ptr);
+
+        let size = layout.size();
+        let align = layout.align();
+        let total_size = size + HDR_SIZE;
+
+        if header.tag == 0 {
+            let jem = Jemalloc;
+            jem.dealloc(header.orig_ptr as *mut u8, Layout::from_size_align_unchecked(total_size, align));
+            DRAM_ALLOCATED.fetch_sub(size, Ordering::SeqCst);
+        } else {
+            allocator_bindings::umf_dealloc(header.orig_ptr as *mut std::ffi::c_void);
+        }
+    }
+}
+*/
+
+
+
 
 
 /*use core::alloc::{GlobalAlloc, Layout};
