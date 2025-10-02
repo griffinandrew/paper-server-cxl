@@ -26,14 +26,17 @@ use crate::{
 };
 
 mod allocator;
-use allocator::UmfGlobal;
+//use allocator::UmfGlobal;
+use allocator::HybridGlobal;
 
 //#[cfg(not(target_env = "msvc"))]
 //#[global_allocator]
 //static GLOBAL: Jemalloc = Jemalloc;
 
 #[global_allocator]
-static GLOBAL: UmfGlobal = UmfGlobal;
+//static GLOBAL: UmfGlobal = UmfGlobal;
+static GLOBAL: HybridGlobal = HybridGlobal;
+
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
