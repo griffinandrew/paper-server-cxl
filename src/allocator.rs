@@ -134,7 +134,8 @@ static INIT: Once = Once::new();
 static DRAM_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
 
 impl HybridGlobal {
-    const DRAM_LIMIT: usize = 1024 * 1024 * 1024 * 2; // 1 GiB
+    const DRAM_LIMIT: usize = 1024 * 1024 * 1024 * 3; // 3 GiB
+    //const DRAM_LIMIT: usize = 1024 * 1024 * 1024; // 1 GiB
     //const DRAM_LIMIT: usize = 1024 * 1024 * 500; //500 mib
     //const DRAM_LIMIT: usize = 1024 * 1024 * 100; //100 mib
     //const DRAM_LIMIT: usize = 1024 * 1024 * 50; //50 mib
@@ -151,7 +152,7 @@ impl HybridGlobal {
 #[repr(C)]
 struct Header {
     orig_ptr: usize, // pointer returned by backend allocator
-    tag: u8,         // 0 = DRAM, 1 = PMEM
+    tag: bool,         // false = DRAM, true = PMEM
     //_pad: [u8; 7],   // pad to 16 bytes for alignment
 }
 const HDR_SIZE: usize = std::mem::size_of::<Header>();
@@ -165,11 +166,11 @@ unsafe impl GlobalAlloc for HybridGlobal {
         let total_size = size + HDR_SIZE;
 
         let (base, tag) = if Self::should_use_dram(size) {
-            let jem = Jemalloc;
-            let ptr = jem.alloc(Layout::from_size_align_unchecked(total_size, align));
+            let ptr = Jemalloc.alloc(Layout::from_size_align_unchecked(total_size, align));
             if ptr.is_null() { return ptr::null_mut(); }
-            DRAM_ALLOCATED.fetch_add(size, Ordering::SeqCst);
-            (ptr, 0u8)
+            DRAM_ALLOCATED.fetch_add(total_size, Ordering::SeqCst);
+            //(ptr, 0u8)
+            (ptr, false)
         } else {
             INIT.call_once(|| {
                 allocator_bindings::umf_allocator_init(
@@ -187,9 +188,9 @@ unsafe impl GlobalAlloc for HybridGlobal {
                 //if ptr.is_null() { return ptr::null_mut(); }
                 //DRAM_ALLOCATED.fetch_add(size, Ordering::SeqCst);
                 panic!("UMF allocation failed and no fallback");
-                (ptr, 0u8)
+                (ptr, false)
             } else {
-                (ptr, 1u8)
+                (ptr, true)
             }
         };
 
@@ -215,10 +216,10 @@ unsafe impl GlobalAlloc for HybridGlobal {
 
         //not sure if this should be total size or just requete size ... 
         //i kinda think it should be total size since that is what was allocated
-        if header.tag == 0 {
-            let jem = Jemalloc;
-            jem.dealloc(header.orig_ptr as *mut u8, Layout::from_size_align_unchecked(total_size, align));
-            DRAM_ALLOCATED.fetch_sub(size, Ordering::SeqCst);
+        if header.tag == false {
+            // DRAM deallocation
+            Jemalloc.dealloc(header.orig_ptr as *mut u8, Layout::from_size_align_unchecked(total_size, align));
+            DRAM_ALLOCATED.fetch_sub(total_size, Ordering::SeqCst);
         } else {
             allocator_bindings::umf_dealloc(header.orig_ptr as *mut std::ffi::c_void);
         }
