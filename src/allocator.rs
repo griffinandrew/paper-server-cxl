@@ -1,3 +1,4 @@
+/* 
 use core::alloc::{GlobalAlloc, Layout};
 use std::sync::{Once, atomic::{AtomicUsize, Ordering}};
 use std::ptr;
@@ -111,10 +112,11 @@ unsafe impl GlobalAlloc for HybridGlobal {
         }
     }
 }
+*/
 
 
 //without alignment
-/*
+
 use core::alloc::{GlobalAlloc, Layout};
 use std::sync::{Once, atomic::{AtomicUsize, Ordering}};
 use std::ptr;
@@ -132,8 +134,12 @@ static INIT: Once = Once::new();
 static DRAM_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
 
 impl HybridGlobal {
-    const DRAM_LIMIT: usize = 1024 * 1024 * 1024; // 1 GiB
-
+    const DRAM_LIMIT: usize = 1024 * 1024 * 1024 * 2; // 1 GiB
+    //const DRAM_LIMIT: usize = 1024 * 1024 * 500; //500 mib
+    //const DRAM_LIMIT: usize = 1024 * 1024 * 100; //100 mib
+    //const DRAM_LIMIT: usize = 1024 * 1024 * 50; //50 mib
+    //const DRAM_LIMIT: usize = 1024 * 1024 * 20; //20 mib
+    //const DRAM_LIMIT: usize = 1024 * 1024 * 10; //10 mib
     /// Should this allocation go to DRAM or PMEM?
     fn should_use_dram(size: usize) -> bool {
         let current = DRAM_ALLOCATED.load(Ordering::Relaxed);
@@ -146,7 +152,7 @@ impl HybridGlobal {
 struct Header {
     orig_ptr: usize, // pointer returned by backend allocator
     tag: u8,         // 0 = DRAM, 1 = PMEM
-    _pad: [u8; 7],   // pad to 16 bytes for alignment
+    //_pad: [u8; 7],   // pad to 16 bytes for alignment
 }
 const HDR_SIZE: usize = std::mem::size_of::<Header>();
 
@@ -174,10 +180,13 @@ unsafe impl GlobalAlloc for HybridGlobal {
             let ptr = allocator_bindings::umf_alloc(total_size) as *mut u8;
             if ptr.is_null() {
                 // fallback to DRAM
-                let jem = Jemalloc;
-                let ptr = jem.alloc(Layout::from_size_align_unchecked(total_size, align));
-                if ptr.is_null() { return ptr::null_mut(); }
-                DRAM_ALLOCATED.fetch_add(size, Ordering::SeqCst);
+
+
+                //let jem = Jemalloc;
+                //let ptr = jem.alloc(Layout::from_size_align_unchecked(total_size, align));
+                //if ptr.is_null() { return ptr::null_mut(); }
+                //DRAM_ALLOCATED.fetch_add(size, Ordering::SeqCst);
+                panic!("UMF allocation failed and no fallback");
                 (ptr, 0u8)
             } else {
                 (ptr, 1u8)
@@ -186,7 +195,8 @@ unsafe impl GlobalAlloc for HybridGlobal {
 
         // Store header directly at base
         let hdr_ptr = base as *mut Header;
-        ptr::write(hdr_ptr, Header { orig_ptr: base as usize, tag, _pad: [0;7] });
+        //ptr::write(hdr_ptr, Header { orig_ptr: base as usize, tag, _pad: [0;7] });
+        ptr::write(hdr_ptr, Header { orig_ptr: base as usize, tag});
 
         // Return pointer immediately after header
         (base as *mut u8).add(HDR_SIZE)
@@ -200,9 +210,11 @@ unsafe impl GlobalAlloc for HybridGlobal {
         let header = ptr::read(hdr_ptr);
 
         let size = layout.size();
-        let align = layout.align();
+        let align = layout.align(); 
         let total_size = size + HDR_SIZE;
 
+        //not sure if this should be total size or just requete size ... 
+        //i kinda think it should be total size since that is what was allocated
         if header.tag == 0 {
             let jem = Jemalloc;
             jem.dealloc(header.orig_ptr as *mut u8, Layout::from_size_align_unchecked(total_size, align));
@@ -212,7 +224,6 @@ unsafe impl GlobalAlloc for HybridGlobal {
         }
     }
 }
-*/
 
 
 

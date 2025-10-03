@@ -5,7 +5,7 @@ host=127.0.0.1
 port=3145
 
 # Maximum size of the cache specified in bytes
-max_size=128GiB
+max_size=232GiB
 
 # The configured eviction policies of the cache
 # Possible values:
