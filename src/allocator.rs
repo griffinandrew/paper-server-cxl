@@ -2,7 +2,6 @@
 use core::alloc::{GlobalAlloc, Layout};
 use std::sync::{Once, atomic::{AtomicUsize, Ordering}};
 use std::ptr;
-use log::info;
 use tikv_jemallocator::Jemalloc;
 
 mod allocator_bindings {
@@ -16,7 +15,7 @@ static INIT: Once = Once::new();
 static DRAM_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
 
 impl HybridGlobal {
-    const DRAM_LIMIT: usize = 1024 * 1024 * 1024 * 4; // 4 GiB
+    const DRAM_LIMIT: usize = 1024 * 1024 * 1024 * 15; // 15 GiB
     //const DRAM_LIMIT: usize = 1024 * 1024 * 500; //500 mib
 
     /// Should this allocation go to DRAM or PMEM?
@@ -36,53 +35,56 @@ const HDR_SIZE: usize = std::mem::size_of::<Header>();
 
 unsafe impl GlobalAlloc for HybridGlobal {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let size = layout.size();
-        let align = layout.align();
-        let total_size = size + HDR_SIZE;
+        unsafe{
+            let size = layout.size();
+            let align = layout.align();
+            let total_size = size + HDR_SIZE;
 
-        let (base, tag) = if Self::should_use_dram(size) {
-            let ptr = Jemalloc.alloc(Layout::from_size_align_unchecked(total_size, align));
+            let (base, tag) = if Self::should_use_dram(size) {
+                let ptr = Jemalloc.alloc(Layout::from_size_align_unchecked(total_size, align));
+                if ptr.is_null() { return panic!("DRAM allocation failed"); }
+                DRAM_ALLOCATED.fetch_add(total_size, Ordering::SeqCst);
+                (ptr, false)
+            } else {
+                INIT.call_once(|| {
+                    allocator_bindings::umf_allocator_init(
+                        b"/dev/dax0.0\0".as_ptr() as *const i8,
+                        266_352_984_064, // approximate PMEM size
+                    );
+                });
+                let ptr = allocator_bindings::umf_alloc(total_size) as *mut u8;
+                if ptr.is_null() {panic!("UMF allocation failed and no fallback")} 
+                (ptr, true)
+            };
 
-            if ptr.is_null() { return panic!("DRAM allocation failed"); }
-            DRAM_ALLOCATED.fetch_add(total_size, Ordering::SeqCst);
-            (ptr, false)
-        } else {
-            INIT.call_once(|| {
-                allocator_bindings::umf_allocator_init(
-                    b"/dev/dax0.0\0".as_ptr() as *const i8,
-                    266_352_984_064, // approximate PMEM size
-                );
-            });
-            let ptr = allocator_bindings::umf_alloc(total_size) as *mut u8;
-            if ptr.is_null() {panic!("UMF allocation failed and no fallback")} 
-            (ptr, true)
-        };
+            // Store header directly at base
+            let hdr_ptr = base as *mut Header;
+            ptr::write(hdr_ptr, Header { orig_ptr: base as usize, tag});
 
-        // Store header directly at base
-        let hdr_ptr = base as *mut Header;
-        ptr::write(hdr_ptr, Header { orig_ptr: base as usize, tag});
-
-        // Return pointer immediately after header
-        (base as *mut u8).add(HDR_SIZE)
+            // Return pointer immediately after header
+            (base as *mut u8).add(HDR_SIZE)
+        }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        if ptr.is_null() { return; }
+        unsafe {
+            if ptr.is_null() { return; }
 
-        // Retrieve header from just before the user pointer
-        let hdr_ptr = (ptr as *mut u8).sub(HDR_SIZE) as *mut Header;
-        let header = ptr::read(hdr_ptr);
+            // Retrieve header from just before the user pointer
+            let hdr_ptr = (ptr as *mut u8).sub(HDR_SIZE) as *mut Header;
+            let header = ptr::read(hdr_ptr);
 
-        let size = layout.size();
-        let align = layout.align(); 
-        let total_size = size + HDR_SIZE;
+            let size = layout.size();
+            let align = layout.align(); 
+            let total_size = size + HDR_SIZE;
 
-        if header.tag == false {
-            // DRAM deallocation of total size
-            Jemalloc.dealloc(header.orig_ptr as *mut u8, Layout::from_size_align_unchecked(total_size, align));
-            DRAM_ALLOCATED.fetch_sub(total_size, Ordering::SeqCst);
-        } else {
-            allocator_bindings::umf_dealloc(header.orig_ptr as *mut std::ffi::c_void);
+            if header.tag == false {
+                // DRAM deallocation of total size
+                Jemalloc.dealloc(header.orig_ptr as *mut u8, Layout::from_size_align_unchecked(total_size, align));
+                DRAM_ALLOCATED.fetch_sub(total_size, Ordering::SeqCst);
+            } else {
+                allocator_bindings::umf_dealloc(header.orig_ptr as *mut std::ffi::c_void);
+            }
         }
     }
 }
