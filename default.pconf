@@ -5,7 +5,7 @@ host=127.0.0.1
 port=3145
 
 # Maximum size of the cache specified in bytes
-max_size=2GiB
+max_size=232GiB
 
 # The configured eviction policies of the cache
 # Possible values:
@@ -29,7 +29,7 @@ policies[]=arc
 policies[]=s3-fifo-0.1
 
 # The initial eviction policy of the cache
-policy=auto
+policy=lru
 
 # Maximum number of concurrent connections
 max_connections=50
