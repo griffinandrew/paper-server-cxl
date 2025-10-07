@@ -13,15 +13,20 @@ pub struct HybridGlobal;
 
 static INIT: Once = Once::new();
 static DRAM_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
+static mut DRAM_LIMIT: usize = 1024 * 1024 * 1024 * 1; // default 1 GiB
 
 impl HybridGlobal {
-    const DRAM_LIMIT: usize = 1024 * 1024 * 1024 * 15; // 15 GiB
-    //const DRAM_LIMIT: usize = 1024 * 1024 * 500; //500 mib
+    /// Set the DRAM limit in bytes
+    pub fn set_dram_limit(limit: usize) {
+        unsafe { DRAM_LIMIT = limit; }
+        unsafe {println!("dram limit set to {}", limit)}
+    }
 
     /// Should this allocation go to DRAM or PMEM?
     fn should_use_dram(size: usize) -> bool {
         let current = DRAM_ALLOCATED.load(Ordering::Relaxed);
-        current + size <= Self::DRAM_LIMIT - 1024 * 1024 // leave small buffer
+       //current + size <= DRAM_LIMIT - 1024 * 1024 // leave small buffer
+       unsafe { current + size <= DRAM_LIMIT } // no buffer....
     }
 }
 

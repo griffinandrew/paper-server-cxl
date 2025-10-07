@@ -48,10 +48,18 @@ struct Args {
 	#[arg(short, long)]
 	/// Optional path to log4rs config file
 	log_config: Option<PathBuf>,
+
+	#[arg(short, long)]
+	/// Optional DRAM limit in bytes
+	dram_limit: Option<usize>,
 }
 
 fn main() {
 	let args = Args::parse();
+
+	if let Some(dram_limit) = args.dram_limit {
+		HybridGlobal::set_dram_limit(dram_limit);
+	}
 
 	dotenv().ok();
 	init_logging(args.log_config);
