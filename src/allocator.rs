@@ -47,7 +47,7 @@ unsafe impl GlobalAlloc for HybridGlobal {
 
             let (base, tag) = if Self::should_use_dram(size) {
                 let ptr = Jemalloc.alloc(Layout::from_size_align_unchecked(total_size, align));
-                if ptr.is_null() { return panic!("DRAM allocation failed"); }
+                if ptr.is_null() { return panic!("DRAM allocation failed") }
                 DRAM_ALLOCATED.fetch_add(total_size, Ordering::SeqCst);
                 (ptr, false)
             } else {
