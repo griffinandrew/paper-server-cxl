@@ -17,112 +17,92 @@ static mut DRAM_LIMIT: usize = 1024 * 1024 * 1024 * 1; // default 1 GiB
 
 static ALL_MEM_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
 
-static PRINT_THRESHOLD: usize = 1000;
-static mut LAST_PRINT_ALLOC: usize = 0;
-static mut LAST_PRINT_DEALLOC: usize = 0;
-
-
-impl HybridGlobal {
-    /// Set the DRAM limit in bytes
-    pub fn set_dram_limit(limit: usize) {
-        unsafe { DRAM_LIMIT = limit; }
-        unsafe {println!("dram limit set to {}", limit)}
-    }
-
-    /// Should this allocation go to DRAM or PMEM?
-    fn should_use_dram(size: usize) -> bool {
-        let current = DRAM_ALLOCATED.load(Ordering::Relaxed);
-       //current + size <= DRAM_LIMIT - 1024 * 1024 // leave small buffer
-       unsafe { current + size <= DRAM_LIMIT } // no buffer....
-    }
-}
-
-/// Header stored before each allocation
+/// Per-allocation header
 #[repr(C)]
 struct Header {
-    orig_ptr: usize, // pointer returned by backend allocator
-    tag: bool,       // false = DRAM, true = PMEM
+    tag: u8,       // 0 = DRAM, 1 = PMEM
+
 }
-const HDR_SIZE: usize = std::mem::size_of::<Header>();
 
 unsafe impl GlobalAlloc for HybridGlobal {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        unsafe {
-            let size = layout.size();
-            let align = layout.align();
-            let total_size = size + HDR_SIZE;
+    
+        // Compute combined layout with header
+        let header_layout = Layout::new::<Header>();
+        let (combined_layout, offset) = header_layout.extend(layout).unwrap();
+        //need to apply the padding apparently..... 
+        let padded_combined_layout = combined_layout.pad_to_align();
 
-            let (base, tag) = if Self::should_use_dram(size) {
-                let ptr = Jemalloc.alloc(Layout::from_size_align_unchecked(total_size, align));
-                if ptr.is_null() { return ptr::null_mut() } //panic!("DRAM allocation failed")
-                DRAM_ALLOCATED.fetch_add(total_size, Ordering::SeqCst);
-                ALL_MEM_ALLOCATED.fetch_add(total_size, Ordering::SeqCst);
-                (ptr, false)
-            } else {
+        // Decide backend
+        let (raw, tag) = if Self::should_use_dram(padded_combined_layout.size()) {
+            let ptr = Jemalloc.alloc(padded_combined_layout);
+            if ptr.is_null() { return ptr::null_mut(); }
+            DRAM_ALLOCATED.fetch_add(padded_combined_layout.size(), Ordering::SeqCst);
+            ALL_MEM_ALLOCATED.fetch_add(padded_combined_layout.size(), Ordering::SeqCst);
+            (ptr, 0)
+        } else {
+            unsafe {
                 INIT.call_once(|| {
                     allocator_bindings::umf_allocator_init(
                         b"/dev/dax0.0\0".as_ptr() as *const i8,
                         266_352_984_064, // approximate PMEM size
                     );
                 });
-                let ptr = allocator_bindings::umf_alloc(total_size) as *mut u8;
-                if ptr.is_null() { return ptr::null_mut() } //panic!("PMEM allocation failed")
-                ALL_MEM_ALLOCATED.fetch_add(total_size, Ordering::SeqCst);
-                (ptr, true)
-            };
-            /* for debugging print every N allocations
-            if PRINT_THRESHOLD == LAST_PRINT_ALLOC {
-                println!("alloc: total allocated memory: {}", ALL_MEM_ALLOCATED.load(Ordering::SeqCst));
-                LAST_PRINT_ALLOC = 0;
-            } else {
-                LAST_PRINT_ALLOC += 1;
-            }
-            */
-
-            // Store header directly at base
-            let hdr_ptr = base as *mut Header;
-            ptr::write(hdr_ptr, Header { orig_ptr: base as usize, tag});
-
-            // Return pointer immediately after header
-            (base as *mut u8).add(HDR_SIZE)
         }
+            let ptr = allocator_bindings::umf_alloc(padded_combined_layout.size()) as *mut u8;
+            if ptr.is_null() { return ptr::null_mut(); }
+            ALL_MEM_ALLOCATED.fetch_add(padded_combined_layout.size(), Ordering::SeqCst);
+            (ptr, 1)
+        };
+
+        // Write header at start of allocation
+        let hdr_ptr = raw as *mut Header;
+        unsafe {
+            ptr::write(hdr_ptr, Header {
+                tag,
+            });
+        }
+
+        // Return user pointer at correct alignment
+        unsafe { raw.add(offset) } // i think this is still okay....
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe {
-            if ptr.is_null() { return; }
+        //if ptr.is_null() { return; }
 
-            // Retrieve header from just before the user pointer
-            let hdr_ptr = (ptr as *mut u8).sub(HDR_SIZE) as *mut Header;
-            let header = ptr::read(hdr_ptr);
 
-            let size = layout.size();
-            let align = layout.align(); 
-            let total_size = size + HDR_SIZE;
+        //this is probably wrong way of doing ittttt
+        // Reconstruct the header pointer using the original layout and offset
+        let header_layout = Layout::new::<Header>();
+        let (combined_layout, offset) = header_layout.extend(layout).unwrap();
+        let padded_combined_layout = combined_layout.pad_to_align();
 
-            if header.tag == false {
-                // DRAM deallocation of total size
-                Jemalloc.dealloc(header.orig_ptr as *mut u8, Layout::from_size_align_unchecked(total_size, align));
-                DRAM_ALLOCATED.fetch_sub(total_size, Ordering::SeqCst);
-                ALL_MEM_ALLOCATED.fetch_sub(total_size, Ordering::SeqCst);
-            } else {
-                allocator_bindings::umf_dealloc(header.orig_ptr as *mut std::ffi::c_void);
-                ALL_MEM_ALLOCATED.fetch_sub(total_size, Ordering::SeqCst);
-            }
-            /* for debugging print every N deallocations
-            if PRINT_THRESHOLD == LAST_PRINT_DEALLOC {
-                println!("dealloc: total allocated memory: {}", ALL_MEM_ALLOCATED.load(Ordering::SeqCst));
-                LAST_PRINT_DEALLOC = 0;
-            } else {
-                LAST_PRINT_DEALLOC += 1;
-            }
-            */
+        // The header is located at (ptr - offset)
+        let hdr_ptr = ptr.sub(offset) as *mut Header;
+        let hdr = &*hdr_ptr;
 
-            //println!("dealloc: total allocated memory: {}", ALL_MEM_ALLOCATED.load(Ordering::SeqCst));
+        if hdr.tag == 0 {
+            // DRAM
+            unsafe { Jemalloc.dealloc(hdr_ptr as *mut u8, padded_combined_layout); }
+            DRAM_ALLOCATED.fetch_sub(padded_combined_layout.size(), Ordering::SeqCst);
+            ALL_MEM_ALLOCATED.fetch_sub(padded_combined_layout.size(), Ordering::SeqCst);
+        } else {
+            //pmem
+            unsafe { allocator_bindings::umf_dealloc(hdr_ptr as *mut std::ffi::c_void); }
+            ALL_MEM_ALLOCATED.fetch_sub(padded_combined_layout.size(), Ordering::SeqCst);
         }
     }
 }
 
+impl HybridGlobal {
+    /// Set the DRAM limit in bytes
+    pub fn set_dram_limit(limit: usize) {
+        unsafe { DRAM_LIMIT = limit; }
+    }
 
-
-
+    /// Determine whether to allocate from DRAM
+    fn should_use_dram(size: usize) -> bool {
+        let current = DRAM_ALLOCATED.load(Ordering::Relaxed);
+        unsafe { current + size <= DRAM_LIMIT }
+    }
+}

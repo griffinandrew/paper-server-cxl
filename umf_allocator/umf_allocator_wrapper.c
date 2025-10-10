@@ -89,7 +89,6 @@ void umf_dealloc(void *ptr) {
     //pthread_mutex_lock(&pool_lock);
     if (!pool || !ptr) {
         //pthread_mutex_unlock(&pool_lock);
-
         return;
     }
     umfPoolFree(pool, ptr);
