@@ -15,6 +15,13 @@ static INIT: Once = Once::new();
 static DRAM_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
 static mut DRAM_LIMIT: usize = 1024 * 1024 * 1024 * 1; // default 1 GiB
 
+static ALL_MEM_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
+
+static PRINT_THRESHOLD: usize = 1000;
+static mut LAST_PRINT_ALLOC: usize = 0;
+static mut LAST_PRINT_DEALLOC: usize = 0;
+
+
 impl HybridGlobal {
     /// Set the DRAM limit in bytes
     pub fn set_dram_limit(limit: usize) {
@@ -40,15 +47,16 @@ const HDR_SIZE: usize = std::mem::size_of::<Header>();
 
 unsafe impl GlobalAlloc for HybridGlobal {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        unsafe{
+        unsafe {
             let size = layout.size();
             let align = layout.align();
             let total_size = size + HDR_SIZE;
 
             let (base, tag) = if Self::should_use_dram(size) {
                 let ptr = Jemalloc.alloc(Layout::from_size_align_unchecked(total_size, align));
-                if ptr.is_null() { return panic!("DRAM allocation failed") }
+                if ptr.is_null() { return ptr::null_mut() } //panic!("DRAM allocation failed")
                 DRAM_ALLOCATED.fetch_add(total_size, Ordering::SeqCst);
+                ALL_MEM_ALLOCATED.fetch_add(total_size, Ordering::SeqCst);
                 (ptr, false)
             } else {
                 INIT.call_once(|| {
@@ -58,9 +66,18 @@ unsafe impl GlobalAlloc for HybridGlobal {
                     );
                 });
                 let ptr = allocator_bindings::umf_alloc(total_size) as *mut u8;
-                if ptr.is_null() {panic!("UMF allocation failed and no fallback")} 
+                if ptr.is_null() { return ptr::null_mut() } //panic!("PMEM allocation failed")
+                ALL_MEM_ALLOCATED.fetch_add(total_size, Ordering::SeqCst);
                 (ptr, true)
             };
+            /* for debugging print every N allocations
+            if PRINT_THRESHOLD == LAST_PRINT_ALLOC {
+                println!("alloc: total allocated memory: {}", ALL_MEM_ALLOCATED.load(Ordering::SeqCst));
+                LAST_PRINT_ALLOC = 0;
+            } else {
+                LAST_PRINT_ALLOC += 1;
+            }
+            */
 
             // Store header directly at base
             let hdr_ptr = base as *mut Header;
@@ -87,11 +104,25 @@ unsafe impl GlobalAlloc for HybridGlobal {
                 // DRAM deallocation of total size
                 Jemalloc.dealloc(header.orig_ptr as *mut u8, Layout::from_size_align_unchecked(total_size, align));
                 DRAM_ALLOCATED.fetch_sub(total_size, Ordering::SeqCst);
+                ALL_MEM_ALLOCATED.fetch_sub(total_size, Ordering::SeqCst);
             } else {
                 allocator_bindings::umf_dealloc(header.orig_ptr as *mut std::ffi::c_void);
+                ALL_MEM_ALLOCATED.fetch_sub(total_size, Ordering::SeqCst);
             }
+            /* for debugging print every N deallocations
+            if PRINT_THRESHOLD == LAST_PRINT_DEALLOC {
+                println!("dealloc: total allocated memory: {}", ALL_MEM_ALLOCATED.load(Ordering::SeqCst));
+                LAST_PRINT_DEALLOC = 0;
+            } else {
+                LAST_PRINT_DEALLOC += 1;
+            }
+            */
+
+            //println!("dealloc: total allocated memory: {}", ALL_MEM_ALLOCATED.load(Ordering::SeqCst));
         }
     }
 }
+
+
 
 
