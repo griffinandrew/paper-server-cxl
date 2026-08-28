@@ -19,7 +19,7 @@ use std::{
 
 use kwik::thread_pool::ThreadPool;
 use log::{error, info, warn};
-use paper_cache::{CacheError, PaperCache, PaperPolicy};
+use paper_cache::{CacheError, PaperCache, PaperPolicy, TieredBuffer};
 use paper_utils::{
 	sheet::{Sheet, SheetBuilder},
 	stream::Buffer,
@@ -27,7 +27,11 @@ use paper_utils::{
 
 use crate::{command::Command, config::Config, connection::Connection, error::ServerError};
 
-pub type Cache = PaperCache<Buffer, Buffer>;
+/// Keys stay `Buffer` (the protocol's byte strings); values become
+/// `TieredBuffer`, which is what makes this the tiered cache rather than the
+/// flat one -- each value lives in either the fast (DRAM) or slow (PMEM/CXL)
+/// tier and migrates between them under the policy's control.
+pub type Cache = PaperCache<Buffer, TieredBuffer>;
 type SheetResult = Result<Sheet, ServerError>;
 
 pub struct Server {
@@ -303,7 +307,7 @@ fn handle_get(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 
 fn handle_set(cache: &Arc<Cache>, key: Buffer, value: Buffer, ttl: Option<u32>) -> SheetResult {
 	cache
-		.set(key, value, ttl)
+		.set(key, &value, ttl)
 		.map(|_| SheetBuilder::new().write_bool(true).into_sheet())
 		.map_err(ServerError::CacheError)
 }
@@ -327,10 +331,12 @@ fn handle_has(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 fn handle_peek(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 	cache
 		.peek(&key)
+		// `Arc<TieredBuffer>` rather than the flat cache's buffer: deref
+		// through both to reach the bytes, whichever tier they are in.
 		.map(|object| {
 			SheetBuilder::new()
 				.write_bool(true)
-				.write_buf(&object)
+				.write_buf(object.as_ref().as_ref())
 				.into_sheet()
 		})
 		.map_err(ServerError::CacheError)
@@ -369,15 +375,20 @@ fn handle_resize(cache: &Arc<Cache>, size: u64) -> SheetResult {
 		.map_err(ServerError::CacheError)
 }
 
-fn handle_policy(cache: &Arc<Cache>, policy_str: String) -> SheetResult {
-	let Ok(policy) = PaperPolicy::from_str(&policy_str) else {
+/// Refused rather than silently ignored.
+///
+/// The tiered cache has no runtime policy setter: `PaperCache::policy` lives
+/// on the `impl<K, V, S> ... where V: ValueBuffer` block, and `TieredBuffer`
+/// does not implement `ValueBuffer`, so it is not callable on this type at
+/// all. Switching design means restarting with a different `policy=` -- which
+/// is also the honest thing for a tiered cache, since the fast/slow split a
+/// running stack has built up is not transferable to another design.
+fn handle_policy(_cache: &Arc<Cache>, policy_str: String) -> SheetResult {
+	let Ok(_policy) = PaperPolicy::from_str(&policy_str) else {
 		return Err(ServerError::CacheError(CacheError::InvalidPolicy));
 	};
 
-	cache
-		.policy(policy)
-		.map(|_| SheetBuilder::new().write_bool(true).into_sheet())
-		.map_err(ServerError::CacheError)
+	Err(ServerError::CacheError(CacheError::InvalidPolicy))
 }
 
 fn handle_status(cache: &Arc<Cache>) -> SheetResult {

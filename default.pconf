@@ -7,6 +7,10 @@ port=3145
 # Maximum size of the cache specified in bytes
 max_size=2GiB
 
+# Byte budget of the FAST (DRAM) tier. Values beyond it are demoted to the
+# slow (PMEM/CXL) tier. Must not exceed max_size.
+fast_tier_size=512MiB
+
 # The configured eviction policies of the cache
 # Possible values:
 # - lfu
@@ -18,18 +22,34 @@ max_size=2GiB
 # - 2q-<K_in>-<K_out>
 # - arc
 # - s3-fifo-<ratio>
-policies[]=lfu
-policies[]=fifo
-policies[]=clock
-policies[]=sieve
+# NOTE: `policies[]` is parsed but unused by this build. The tiered cache has
+# no runtime policy switching and no `auto` policy, so the design is fixed at
+# startup by `policy` below. The list is kept so stock config files still load.
 policies[]=lru
-policies[]=mru
-policies[]=2q-0.25-0.5
-policies[]=arc
-policies[]=s3-fifo-0.1
 
-# The initial eviction policy of the cache
-policy=auto
+# The eviction policy, fixed for the process lifetime. This build serves the
+# TIERED designs; a flat policy name such as `lru` or `auto` will be rejected.
+# Possible values:
+# - lru-hybrid
+# - lfu-hybrid
+# - fifo-hybrid
+# - lru-lfu-hybrid-<promote_k>
+# - lru-sized-hybrid
+# - 2q-hybrid-<k_in>
+# - 2q-ghost-hybrid-<k_in>
+# - 2q-fast-admission-hybrid-<k_in>
+# - 2q-fast-admission-reprieve-hybrid-<k_in>
+# - 2q-full-fast-admission-hybrid-<k_in>-<k_out>
+# - s3-fifo-hybrid-<ratio>
+# - s3-fifo-ghost-hybrid-<ratio>
+# - s3-fifo-ghost-lazy-demotion-hybrid-<ratio>
+# - s3-fifo-ghost-lazy-demotion-fast-admission-hybrid-<ratio>
+# - s3-fifo-ghost-lazy-demotion-fast-admission-midpoint-hybrid-<ratio>
+# - s3-fifo-lazy-demotion-reprieve-hybrid-<ratio>
+# - s3-fifo-lazy-demotion-fast-admission-reprieve-hybrid-<ratio>
+# - s3-fifo-lazy-demotion-fast-admission-midpoint-reprieve-hybrid-<ratio>
+# - s3-fifo-lazy-demotion-fast-admission-split-slow-reprieve-hybrid-<ratio>
+policy=lru-hybrid
 
 # Maximum number of concurrent connections
 max_connections=50

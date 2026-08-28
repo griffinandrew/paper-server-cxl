@@ -13,7 +13,34 @@ categories = ["caching"]
 [dependencies]
 clap = { version = "4.6.0", features = ["derive"] }
 paper-utils = "1.3.0"
-paper-cache = "1.11.13"
+# The tiered fork, not the published crate. Upstream paper-cache has no
+# fast/slow tier, so serving it here would measure a different cache than the
+# one this project is about. Path rather than git so a working-tree change is
+# picked up without a push, matching how paper-benchmark-cxl depends on it.
+paper-cache = { path = "/home/griff/work/paper-cache-cxl", default-features = false, features = [
+	"numa_jemalloc",
+	"key_value_pmem",
+	"hybrid_cache_common",
+	"lru_hybrid_cache",
+	"lfu_hybrid_cache",
+	"fifo_hybrid_cache",
+	"lru_lfu_hybrid_cache",
+	"lru_sized_hybrid_cache",
+	"two_q_hybrid_cache",
+	"two_q_ghost_hybrid_cache",
+	"two_q_fast_admission_hybrid_cache",
+	"two_q_fast_admission_reprieve_hybrid_cache",
+	"two_q_full_fast_admission_hybrid_cache",
+	"s3_fifo_hybrid_cache",
+	"s3_fifo_ghost_hybrid_cache",
+	"s3_fifo_ghost_lazy_demotion_hybrid_cache",
+	"s3_fifo_ghost_lazy_demotion_fast_admission_hybrid_cache",
+	"s3_fifo_ghost_lazy_demotion_fast_admission_midpoint_hybrid_cache",
+	"s3_fifo_lazy_demotion_reprieve_hybrid_cache",
+	"s3_fifo_lazy_demotion_fast_admission_reprieve_hybrid_cache",
+	"s3_fifo_lazy_demotion_fast_admission_midpoint_reprieve_hybrid_cache",
+	"s3_fifo_lazy_demotion_fast_admission_split_slow_reprieve_hybrid_cache",
+] }
 kwik = "1.18.7"
 byteorder = "1.5.0"
 thiserror = "2.0.16"
@@ -25,5 +52,3 @@ serde_yaml = "0.9.34"
 ctrlc = "3.5.2"
 libc = "0.2.183"
 
-[target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = { version = "0.6", features = ["background_threads"] }

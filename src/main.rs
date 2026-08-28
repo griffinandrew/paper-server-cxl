@@ -18,19 +18,20 @@ use std::{
 };
 
 use clap::Parser;
+use paper_cache::CacheTierSize;
 use dotenv::dotenv;
 use log::{error, info};
-#[cfg(not(target_env = "msvc"))]
-use tikv_jemallocator::Jemalloc;
 
 use crate::{
 	config::Config,
 	server::{Cache, Server},
 };
 
-#[cfg(not(target_env = "msvc"))]
-#[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+// No `#[global_allocator]` here on purpose. `paper-cache` installs a
+// NUMA-bound jemalloc of its own, and that allocator is what decides which
+// node a page lands on -- the entire subject of the tiered cache. Declaring a
+// second one is a hard error, and upstream's plain jemalloc would defeat the
+// measurement even if it were not.
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -63,8 +64,16 @@ fn main() {
 		None => Config::default(),
 	};
 
-	let cache = Cache::new(config.max_size(), config.policies(), config.policy())
-		.expect("Could not configure cache");
+	// The tiered constructor: overall budget, the fast tier's share of it, and
+	// the design. It takes no policy LIST -- `auto` policy switching belongs to
+	// the flat cache, and a tiered stack's fast/slow split is not transferable
+	// between designs, so `policies` from the config is unused here.
+	let cache = Cache::new(
+		config.max_size(),
+		CacheTierSize::Bytes(config.fast_tier_size()),
+		config.policy(),
+	)
+	.expect("Could not configure cache");
 
 	let cache_version = cache.version();
 

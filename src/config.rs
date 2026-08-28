@@ -25,6 +25,7 @@ pub struct Config {
 	port: u32,
 
 	max_size: u64,
+	fast_tier_size: u64,
 	policies: Vec<PaperPolicy>,
 	policy:   PaperPolicy,
 
@@ -37,6 +38,7 @@ enum ConfigValue {
 	Port(u32),
 
 	MaxSize(u64),
+	FastTierSize(u64),
 	PoliciesItem(PaperPolicy),
 	Policy(PaperPolicy),
 
@@ -80,6 +82,12 @@ impl Config {
 		self.max_size
 	}
 
+	/// The fast (DRAM) tier's byte budget. The remainder of `max_size` is
+	/// served from the slow tier.
+	pub fn fast_tier_size(&self) -> u64 {
+		self.fast_tier_size
+	}
+
 	pub fn policies(&self) -> &[PaperPolicy] {
 		&self.policies
 	}
@@ -110,6 +118,7 @@ impl Config {
 			"port" => parse_port(&token_value),
 
 			"max_size" => parse_max_size(&token_value),
+			"fast_tier_size" => parse_fast_tier_size(&token_value),
 			"policies[]" => parse_policies_item(&token_value),
 			"policy" => parse_policy(&token_value),
 
@@ -125,6 +134,7 @@ impl Config {
 				ConfigValue::Port(port) => config.port = port,
 
 				ConfigValue::MaxSize(max_size) => config.max_size = max_size,
+				ConfigValue::FastTierSize(size) => config.fast_tier_size = size,
 				ConfigValue::PoliciesItem(policy) => config.policies.push(policy),
 				ConfigValue::Policy(policy) => config.policy = policy,
 
@@ -166,6 +176,7 @@ fn init_uninitialized_config() -> Config {
 		port: 0,
 
 		max_size: 0,
+		fast_tier_size: 0,
 		policies: Vec::new(),
 		policy:   PaperPolicy::Lfu,
 
@@ -195,6 +206,13 @@ fn parse_port(value: &str) -> Result<ConfigValue, ServerError> {
 	match value.parse::<u32>() {
 		Ok(value) => Ok(ConfigValue::Port(value)),
 		Err(_) => Err(ServerError::InvalidConfigParam("port")),
+	}
+}
+
+fn parse_fast_tier_size(value: &str) -> Result<ConfigValue, ServerError> {
+	match parse_size(value) {
+		Ok(0) | Err(_) => Err(ServerError::InvalidConfigParam("fast_tier_size")),
+		Ok(value) => Ok(ConfigValue::FastTierSize(value)),
 	}
 }
 
