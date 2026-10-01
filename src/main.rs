@@ -12,6 +12,7 @@ mod error;
 mod logo;
 mod selfstats;
 mod server;
+mod set;
 
 use std::{
 	path::{Path, PathBuf},
@@ -76,6 +77,11 @@ struct Args {
 	#[arg(long, value_name = "TOKEN")]
 	auth: Option<String>,
 
+	/// How long a SET may wait, in milliseconds, for the cache to take it and
+	/// then for each read of its value; overriding `set_timeout`. Tiered build.
+	#[arg(long, value_name = "MILLISECONDS")]
+	set_timeout: Option<String>,
+
 	/// Print the server-side cache latency report to stderr every this many
 	/// seconds. Command byte 200 returns the same report on demand.
 	#[arg(long, value_name = "SECONDS")]
@@ -127,11 +133,20 @@ fn main() {
 		Err(err) => fatal(err),
 	};
 
+	#[cfg(feature = "tiered")]
 	info!(
-		"Serving {} with max size {} B and fast tier {} B",
+		"Serving {} with max size {} B, fast tier {} B and set timeout {} ms",
 		config.policy(),
 		config.max_size(),
 		config.fast_tier_size(),
+		config.set_timeout().as_millis(),
+	);
+
+	#[cfg(feature = "all_dram")]
+	info!(
+		"Serving {} from DRAM alone, with max size {} B",
+		config.policy(),
+		config.max_size(),
 	);
 
 	if let Some(every) = config.stats_interval() {
@@ -174,6 +189,10 @@ fn apply_flags(config: &mut Config, args: &Args) -> Result<(), String> {
 
 	if let Some(value) = &args.auth {
 		flagged("--auth", config.set("auth_token", value))?;
+	}
+
+	if let Some(value) = &args.set_timeout {
+		flagged("--set-timeout", config.set("set_timeout", value))?;
 	}
 
 	if let Some(seconds) = args.stats_interval {

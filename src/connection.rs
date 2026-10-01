@@ -7,8 +7,9 @@
 
 use std::{
 	hash::{DefaultHasher, Hash, Hasher},
-	io::Write,
+	io::{self, Read, Write},
 	net::{Shutdown, TcpStream},
+	time::{Duration, Instant},
 };
 
 use paper_utils::stream::StreamError;
@@ -71,5 +72,53 @@ impl Connection {
 		self.stream
 			.write_all(buf)
 			.map_err(|_| ServerError::InvalidResponse)
+	}
+
+	/// The socket itself, for a value to be read straight off it.
+	pub fn stream_mut(&mut self) -> &mut TcpStream {
+		&mut self.stream
+	}
+
+	/// Arms the socket's receive timeout (SO_RCVTIMEO), the longest one read
+	/// waits for data, or with `None` disarms it. A connection is idle between
+	/// commands and waits for the next one without limit, so it is armed only
+	/// while a SET's value and TTL are being read.
+	pub fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+		self.stream.set_read_timeout(timeout)
+	}
+
+	/// A little-endian u32 straight off the socket: a SET's TTL.
+	pub fn read_u32(&mut self) -> io::Result<u32> {
+		let mut bytes = [0u8; 4];
+
+		self.stream.read_exact(&mut bytes)?;
+
+		Ok(u32::from_le_bytes(bytes))
+	}
+
+	/// Reads and discards `len` bytes, through a scratch buffer of a few KiB on
+	/// the stack, so that a request the server will not take is consumed to its
+	/// end and the connection stays in step. Gives up at `deadline`, between
+	/// reads; each read also waits at most the receive timeout, if one is armed.
+	pub fn skip(&mut self, len: u64, deadline: Instant) -> io::Result<()> {
+		let mut scratch = [0u8; 16 * 1024];
+		let mut left = len;
+
+		while left > 0 {
+			if Instant::now() >= deadline {
+				return Err(io::ErrorKind::TimedOut.into());
+			}
+
+			let take = left.min(scratch.len() as u64) as usize;
+
+			match self.stream.read(&mut scratch[..take]) {
+				Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
+				Ok(read) => left -= read as u64,
+				Err(err) if err.kind() == io::ErrorKind::Interrupted => {},
+				Err(err) => return Err(err),
+			}
+		}
+
+		Ok(())
 	}
 }

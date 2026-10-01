@@ -21,3 +21,7 @@ target/
 
 *.yaml
 !log4rs.yaml
+
+# Python caches the probe leaves beside it
+__pycache__/
+*.pyc

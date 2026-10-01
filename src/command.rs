@@ -26,7 +26,12 @@ pub enum Command {
 	Auth(Buffer),
 
 	Get(Buffer),
-	Set(Buffer, Buffer, Option<u32>),
+
+	/// The key and the length of the value. The value itself and the TTL that
+	/// follows it are still on the socket: the SET arm reads them, so that the
+	/// cache can decide whether to take the set before the bytes are read (see
+	/// `set`).
+	Set(Buffer, u32),
 	Del(Buffer),
 
 	Has(Buffer),
@@ -64,14 +69,9 @@ impl Command {
 
 			CommandByte::SET => {
 				let key = reader.read_buf()?;
-				let value = reader.read_buf()?;
+				let len = reader.read_u32()?;
 
-				let ttl = match reader.read_u32()? {
-					0 => None,
-					value => Some(value),
-				};
-
-				Ok(Command::Set(key, value, ttl))
+				Ok(Command::Set(key, len))
 			},
 
 			CommandByte::DEL => {

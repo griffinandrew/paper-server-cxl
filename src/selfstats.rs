@@ -47,9 +47,12 @@
 
 use std::{
 	fmt::Write as _,
+	io,
 	sync::atomic::{AtomicU64, Ordering},
+	time::Instant,
 };
 
+use paper_cache::CacheError;
 use paper_utils::command::CommandByte;
 
 use crate::server::Cache;
@@ -70,10 +73,28 @@ pub const BUCKETS: usize = 256;
 /// solely on `Ok`), and these figures exist to be compared against those.
 pub const SLOT_GET_MISS: u8 = 14;
 
+/// Slot for SETs the cache refused to admit (cache errors 8, 9 and the size
+/// checks): the time from the request to the refusal, which for a set that
+/// waited at the byte gate is the wait. A refused set is not a set -- nothing
+/// was allocated or inserted -- so it must not share the `set` average either.
+pub const SLOT_SET_REFUSED: u8 = 15;
+
 pub struct SelfStats {
 	count: [AtomicU64; SLOTS],
 	total_ns: [AtomicU64; SLOTS],
 	hist: Vec<AtomicU64>,
+
+	/// How the SETs that went through a permit ended (S9), reported under SET
+	/// ADMISSION. Plain counters, bumped on paths that are not the hit path.
+	set_committed: AtomicU64,
+	set_commit_refused: AtomicU64,
+	refused_stalled: AtomicU64,
+	refused_metadata: AtomicU64,
+	refused_other: AtomicU64,
+	body_timeouts: AtomicU64,
+	body_aborts: AtomicU64,
+	skip_failures: AtomicU64,
+	bytes_skipped: AtomicU64,
 }
 
 impl SelfStats {
@@ -82,6 +103,16 @@ impl SelfStats {
 			count: std::array::from_fn(|_| AtomicU64::new(0)),
 			total_ns: std::array::from_fn(|_| AtomicU64::new(0)),
 			hist: (0..SLOTS * BUCKETS).map(|_| AtomicU64::new(0)).collect(),
+
+			set_committed: AtomicU64::new(0),
+			set_commit_refused: AtomicU64::new(0),
+			refused_stalled: AtomicU64::new(0),
+			refused_metadata: AtomicU64::new(0),
+			refused_other: AtomicU64::new(0),
+			body_timeouts: AtomicU64::new(0),
+			body_aborts: AtomicU64::new(0),
+			skip_failures: AtomicU64::new(0),
+			bytes_skipped: AtomicU64::new(0),
 		}
 	}
 
@@ -106,6 +137,55 @@ impl SelfStats {
 			0 => 0.0,
 			n => self.total_ns[slot as usize].load(Ordering::Relaxed) as f64 / n as f64,
 		}
+	}
+
+	/// A SET that was admitted, read and committed.
+	#[cfg_attr(feature = "all_dram", allow(dead_code))]
+	pub fn set_committed(&self) {
+		self.set_committed.fetch_add(1, Ordering::Relaxed);
+	}
+
+	/// A SET whose value arrived whole but whose commit was refused: its TTL
+	/// put it over the eviction threshold. The value was dropped, and refunded.
+	#[cfg_attr(feature = "all_dram", allow(dead_code))]
+	pub fn set_commit_refused(&self) {
+		self.set_commit_refused.fetch_add(1, Ordering::Relaxed);
+	}
+
+	/// A SET the cache refused to admit, counted by the code it is answered with.
+	#[cfg_attr(feature = "all_dram", allow(dead_code))]
+	pub fn set_refused(&self, error: &CacheError) {
+		let counter = match error {
+			CacheError::FastTierStalled => &self.refused_stalled,
+			CacheError::MetadataOverflow => &self.refused_metadata,
+			_ => &self.refused_other,
+		};
+
+		counter.fetch_add(1, Ordering::Relaxed);
+	}
+
+	/// A SET abandoned while its value or TTL was being read: the receive
+	/// timeout fired (a stalled client), or the client hung up or was reset.
+	#[cfg_attr(feature = "all_dram", allow(dead_code))]
+	pub fn body_failed(&self, error: &io::Error) {
+		let counter = match error.kind() {
+			io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => &self.body_timeouts,
+			_ => &self.body_aborts,
+		};
+
+		counter.fetch_add(1, Ordering::Relaxed);
+	}
+
+	/// The value of a refused set, read and discarded to keep the connection in
+	/// step.
+	pub fn skipped(&self, bytes: u64) {
+		self.bytes_skipped.fetch_add(bytes, Ordering::Relaxed);
+	}
+
+	/// A refused set whose value could not be skipped (the client stalled or
+	/// hung up): the connection was closed.
+	pub fn skip_failed(&self) {
+		self.skip_failures.fetch_add(1, Ordering::Relaxed);
 	}
 
 	/// Lower bound of the bucket the requested quantile falls in. Reported
@@ -157,6 +237,17 @@ pub fn bucket_low(b: usize) -> u64 {
 	(1u64 << e) | (sub << (e - 2))
 }
 
+/// Times ONE cache call and nothing around it. The request is already parsed
+/// and the response is not yet written when this runs.
+pub fn timed<T>(stats: &SelfStats, slot: u8, call: impl FnOnce() -> T) -> T {
+	let started = Instant::now();
+	let out = call();
+
+	stats.record(slot, started.elapsed().as_nanos() as u64);
+
+	out
+}
+
 /// The text report: the latency table, then the cache's own figures and the
 /// tier sections. Sections are only appended, never reordered.
 pub fn render(stats: &SelfStats, cache: &Cache) -> String {
@@ -169,6 +260,7 @@ pub fn render(stats: &SelfStats, cache: &Cache) -> String {
 		("get(hit)", CommandByte::GET),
 		("get(miss)", SLOT_GET_MISS),
 		("set", CommandByte::SET),
+		("set(refused)", SLOT_SET_REFUSED),
 		("del", CommandByte::DEL),
 		("has", CommandByte::HAS),
 		("peek", CommandByte::PEEK),
@@ -360,6 +452,11 @@ pub fn render(stats: &SelfStats, cache: &Cache) -> String {
 	#[cfg(feature = "tiered")]
 	render_migrations(&mut out, &cache.hybrid_stats());
 
+	// How SETs fared at the byte gate, and the server's own counts of the ones
+	// it refused or abandoned. Last: it is the newest section.
+	#[cfg(feature = "tiered")]
+	render_set_admission(&mut out, stats, &cache.hybrid_stats(), cache.live_setters());
+
 	out
 }
 
@@ -438,6 +535,66 @@ fn render_migrations(out: &mut String, tier: &paper_cache::HybridStats) {
 		tier.reconcile_applied_to_slow,
 	);
 	let _ = writeln!(out, "erase fallbacks {}", tier.erase_fallbacks);
+}
+
+/// The SET ADMISSION section: the server's own counts of how SETs through a
+/// permit ended, beside the byte gate's figures from `HybridStats`.
+///
+/// `live setters` is the number of SETs in flight right now (a setter is
+/// registered per SET, not per connection, so an idle connection counts for
+/// nothing). `refused` is what the server answered with codes 8 and 9 and the
+/// size checks; `gate stalls` is the gate's own count of times its watchdog
+/// found nothing freed, which is not the same quantity (a SET can also be
+/// refused when its deadline passes while the gate still sees progress). No
+/// line starts with a word `run_mem.py` anchors on.
+#[cfg(feature = "tiered")]
+fn render_set_admission(out: &mut String, stats: &SelfStats, tier: &paper_cache::HybridStats, live_setters: u32) {
+	let load = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
+
+	let stalled = load(&stats.refused_stalled);
+	let metadata = load(&stats.refused_metadata);
+	let other = load(&stats.refused_other);
+
+	let _ = writeln!(out, "\n*** SET ADMISSION (reporting only) ***\n");
+	let _ = writeln!(
+		out,
+		"permit sets    {} committed, {} refused at commit",
+		load(&stats.set_committed),
+		load(&stats.set_commit_refused),
+	);
+	let _ = writeln!(
+		out,
+		"refused        {} ({stalled} fast tier stalled [8], {metadata} metadata overflow [9], {other} other)",
+		stalled + metadata + other,
+	);
+	let _ = writeln!(out, "body timeouts  {}", load(&stats.body_timeouts));
+	let _ = writeln!(out, "body aborts    {}", load(&stats.body_aborts));
+	let _ = writeln!(out, "skip failures  {}", load(&stats.skip_failures));
+	let _ = writeln!(out, "bytes skipped  {} B", load(&stats.bytes_skipped));
+	let _ = writeln!(out, "live setters   {live_setters}");
+	let _ = writeln!(
+		out,
+		"gate           {:?}, {} waits ({:.1} ms waited, {:.1} ms longest)",
+		tier.gate_state,
+		tier.gate_waits,
+		tier.gate_wait_ns_total as f64 / 1e6,
+		tier.gate_wait_ns_max as f64 / 1e6,
+	);
+	let _ = writeln!(
+		out,
+		"gate stalls    {} watchdog stalls, {} refusals; metadata overflows {}",
+		tier.gate_stalls, tier.gate_stall_errors, tier.metadata_overflows,
+	);
+	let _ = writeln!(
+		out,
+		"waiters        {} waiting now (at most {}), {} B reserved",
+		tier.waiters, tier.max_waiters, tier.reserved_bytes,
+	);
+	let _ = writeln!(
+		out,
+		"levels         settle {} B, near {} B, close {} B",
+		tier.band_s, tier.band_n, tier.band_b,
+	);
 }
 
 #[cfg(all(test, feature = "tiered"))]
@@ -573,6 +730,66 @@ mod tests {
 		}
 	}
 
+	#[test]
+	fn the_set_admission_section_counts_what_the_server_did_with_each_set() {
+		let stats = SelfStats::new();
+
+		stats.set_committed();
+		stats.set_committed();
+		stats.set_commit_refused();
+		stats.set_refused(&CacheError::FastTierStalled);
+		stats.set_refused(&CacheError::FastTierStalled);
+		stats.set_refused(&CacheError::MetadataOverflow);
+		stats.set_refused(&CacheError::ExceedingValueSize);
+		stats.body_failed(&io::ErrorKind::WouldBlock.into());
+		stats.body_failed(&io::ErrorKind::TimedOut.into());
+		stats.body_failed(&io::ErrorKind::UnexpectedEof.into());
+		stats.body_failed(&io::ErrorKind::ConnectionReset.into());
+		stats.body_failed(&io::ErrorKind::BrokenPipe.into());
+		stats.skip_failed();
+		stats.skipped(1_000);
+		stats.skipped(24);
+
+		let tier = paper_cache::HybridStats {
+			gate_waits: 7,
+			gate_wait_ns_total: 12_500_000,
+			gate_wait_ns_max: 3_240_000,
+			gate_stalls: 11,
+			gate_stall_errors: 13,
+			metadata_overflows: 17,
+			waiters: 19,
+			max_waiters: 23,
+			reserved_bytes: 29,
+			band_s: 31,
+			band_n: 37,
+			band_b: 41,
+			..paper_cache::HybridStats::default()
+		};
+
+		let mut out = String::new();
+		render_set_admission(&mut out, &stats, &tier, 3);
+
+		assert_eq!(
+			out,
+			"\n*** SET ADMISSION (reporting only) ***\n\n\
+			 permit sets    2 committed, 1 refused at commit\n\
+			 refused        4 (2 fast tier stalled [8], 1 metadata overflow [9], 1 other)\n\
+			 body timeouts  2\n\
+			 body aborts    3\n\
+			 skip failures  1\n\
+			 bytes skipped  1024 B\n\
+			 live setters   3\n\
+			 gate           Off, 7 waits (12.5 ms waited, 3.2 ms longest)\n\
+			 gate stalls    11 watchdog stalls, 13 refusals; metadata overflows 17\n\
+			 waiters        19 waiting now (at most 23), 29 B reserved\n\
+			 levels         settle 31 B, near 37 B, close 41 B\n",
+		);
+
+		for line in out.lines() {
+			assert!(!read_by_run_mem(line), "run_mem.py would read {line:?} as one of its figures");
+		}
+	}
+
 	/// The section is wired to the cache: appended after every other section,
 	/// and reading this process's one tiered cache.
 	///
@@ -614,6 +831,7 @@ mod tests {
 		let (section, later) = rest.split_once("\n*** ").expect("a section follows it");
 
 		assert!(later.starts_with("MIGRATIONS AND CAPACITY PASSES"), "{later}");
+		assert!(later.contains("\n*** SET ADMISSION (reporting only) ***\n"), "{later}");
 
 		let labels: Vec<&str> = section.lines().map(|line| &line[..15]).collect();
 

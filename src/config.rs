@@ -20,6 +20,14 @@ use parse_size::parse_size;
 
 use crate::error::ServerError;
 
+/// How long a SET may wait, and how long each read of its value may wait, when
+/// the config does not say: five seconds.
+pub const DEFAULT_SET_TIMEOUT: Duration = Duration::from_millis(5_000);
+
+/// The longest `set_timeout`: a day. A timeout is a bound, and one far beyond
+/// that is a mistake that would only overflow the clock.
+const MAX_SET_TIMEOUT_MS: u64 = 86_400_000;
+
 #[derive(Debug)]
 pub struct Config {
 	host: String,
@@ -32,6 +40,10 @@ pub struct Config {
 
 	max_connections: usize,
 	auth_token:      Option<u64>,
+
+	/// How long a SET waits for the cache to take it, and for each read of its
+	/// value and TTL. See `set`.
+	set_timeout: Duration,
 
 	/// How often the self-stats report goes to stderr. Command line only.
 	stats_interval: Option<Duration>,
@@ -48,6 +60,8 @@ enum ConfigValue {
 
 	MaxConnections(usize),
 	AuthToken(u64),
+
+	SetTimeout(Duration),
 }
 
 impl Config {
@@ -130,6 +144,15 @@ impl Config {
 		self.auth_token
 	}
 
+	/// How long a SET waits at the byte gate (and so how long its connection
+	/// can be held), and then for each read of its value and its TTL. The flat
+	/// build has no gate and reads a value without a limit, so it never reads
+	/// this.
+	#[cfg_attr(feature = "all_dram", allow(dead_code))]
+	pub fn set_timeout(&self) -> Duration {
+		self.set_timeout
+	}
+
 	pub fn stats_interval(&self) -> Option<Duration> {
 		self.stats_interval
 	}
@@ -175,6 +198,8 @@ impl Config {
 			"max_connections" => parse_max_connections(&token_value),
 			"auth_token" => parse_auth_token(&token_value),
 
+			"set_timeout" => parse_set_timeout(&token_value),
+
 			_ => Err(ServerError::InvalidConfigLine(format!("{key}={value}"))),
 		};
 
@@ -207,6 +232,8 @@ impl Config {
 				self.max_connections = max_connections
 			},
 			ConfigValue::AuthToken(token) => self.auth_token = Some(token),
+
+			ConfigValue::SetTimeout(timeout) => self.set_timeout = timeout,
 		}
 	}
 }
@@ -284,6 +311,8 @@ fn init_uninitialized_config() -> Config {
 		max_connections: 0,
 		auth_token:      None,
 
+		set_timeout: DEFAULT_SET_TIMEOUT,
+
 		stats_interval: None,
 	}
 }
@@ -344,6 +373,17 @@ fn parse_max_connections(value: &str) -> Result<ConfigValue, ServerError> {
 	match value.parse::<usize>() {
 		Ok(0) | Err(_) => Err(ServerError::InvalidConfigParam("max_connections")),
 		Ok(value) => Ok(ConfigValue::MaxConnections(value)),
+	}
+}
+
+/// Whole milliseconds, from one to a day.
+fn parse_set_timeout(value: &str) -> Result<ConfigValue, ServerError> {
+	match value.parse::<u64>() {
+		Ok(millis) if (1..=MAX_SET_TIMEOUT_MS).contains(&millis) => {
+			Ok(ConfigValue::SetTimeout(Duration::from_millis(millis)))
+		},
+
+		_ => Err(ServerError::InvalidConfigParam("set_timeout")),
 	}
 }
 
@@ -408,6 +448,31 @@ mod tests {
 
 		assert_eq!(config.max_size(), 2 << 30);
 		assert_eq!(config.stats_interval(), None);
+	}
+
+	#[test]
+	fn the_set_timeout_is_milliseconds_from_one_to_a_day() {
+		let mut config = Config::default();
+
+		assert_eq!(config.set_timeout(), DEFAULT_SET_TIMEOUT);
+
+		config.set("set_timeout", "250").unwrap();
+		assert_eq!(config.set_timeout(), Duration::from_millis(250));
+
+		// A zero timeout would be no timeout at the socket, so it is refused.
+		for bad in ["0", "-1", "1.5", "soon", "86400001", "99999999999999999999"] {
+			assert!(config.set("set_timeout", bad).is_err(), "{bad}");
+		}
+
+		config.set("set_timeout", "86400000").unwrap();
+		assert_eq!(config.set_timeout(), Duration::from_secs(86_400));
+	}
+
+	#[test]
+	fn a_config_file_need_not_set_the_set_timeout() {
+		let config = init_uninitialized_config();
+
+		assert_eq!(config.set_timeout(), DEFAULT_SET_TIMEOUT);
 	}
 
 	#[test]

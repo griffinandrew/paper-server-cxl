@@ -64,6 +64,16 @@ policy=lru-compact-hybrid
 # Maximum number of concurrent connections
 max_connections=50
 
+# How long a SET may wait, in milliseconds (1 to 86400000), first for the cache
+# to take it -- when the fast tier is full a SET waits for demotions to free
+# room -- and then for each read of its value and its TTL off the socket. A SET
+# the cache cannot take in time is answered with cache error 8 (the fast tier
+# stayed full) or 9 (no room for a new key's metadata) and its value is skipped;
+# a client that stalls mid-value has its connection closed and the bytes it held
+# returned. Read only by the tiered build: the all_dram build has no gate and
+# reads a value without a limit. Default 5000.
+set_timeout=5000
+
 # Authorization token (optional)
 # If set, clients must supply this token to send commands
 # auth_token=<your_auth_token>

@@ -37,7 +37,8 @@ use crate::{
 	config::Config,
 	connection::Connection,
 	error::ServerError,
-	selfstats::{self, SLOT_GET_MISS, SelfStats},
+	selfstats::{self, SLOT_GET_MISS, SelfStats, timed},
+	set,
 };
 
 /// Keys stay `Buffer` (the protocol's byte strings); values become
@@ -51,7 +52,7 @@ pub type Cache = PaperCache<Buffer, TieredBuffer>;
 #[cfg(feature = "all_dram")]
 pub type Cache = PaperCache<Buffer, BufferDRAM>;
 
-type SheetResult = Result<Sheet, ServerError>;
+pub type SheetResult = Result<Sheet, ServerError>;
 
 /// The tiered constructor: overall budget, the fast tier's share of it, and
 /// the design. It takes no policy LIST -- `auto` policy switching is gone from
@@ -87,6 +88,10 @@ pub struct Server {
 	streams:         Arc<Mutex<Vec<Option<TcpStream>>>>,
 	auth_token:      Option<u64>,
 
+	/// How long a SET may wait for the cache to take it and then for each read
+	/// of its value (see `set`).
+	set_timeout: Duration,
+
 	shutdown: Arc<AtomicBool>,
 }
 
@@ -118,6 +123,8 @@ impl Server {
 			max_connections: config.max_connections(),
 			streams: Arc::new(Mutex::new(streams)),
 			auth_token: config.auth_token(),
+
+			set_timeout: config.set_timeout(),
 
 			shutdown: Arc::new(AtomicBool::new(false)),
 		};
@@ -209,6 +216,7 @@ impl Server {
 					let connection = Connection::new(stream, self.auth_token);
 					let cache = self.cache.clone();
 					let stats = self.stats.clone();
+					let set_timeout = self.set_timeout;
 					let streams = self.streams.clone();
 
 					self.pool.execute(move || {
@@ -219,7 +227,7 @@ impl Server {
 							return;
 						};
 
-						Server::handle_connection(connection, cache, stats);
+						Server::handle_connection(connection, cache, stats, set_timeout);
 						info!("Disconnected: {address}");
 
 						remove_stream(streams, index);
@@ -233,7 +241,12 @@ impl Server {
 		Ok(())
 	}
 
-	fn handle_connection(mut connection: Connection, cache: Arc<Cache>, stats: Arc<SelfStats>) {
+	fn handle_connection(
+		mut connection: Connection,
+		cache: Arc<Cache>,
+		stats: Arc<SelfStats>,
+		set_timeout: Duration,
+	) {
 		loop {
 			let command = match connection.get_command() {
 				Ok(command) => command,
@@ -256,7 +269,9 @@ impl Server {
 				(_, Command::Auth(token)) => handle_auth(&mut connection, &token),
 
 				(true, Command::Get(key)) => handle_get(&cache, &stats, key),
-				(true, Command::Set(key, value, ttl)) => handle_set(&cache, &stats, key, value, ttl),
+				(true, Command::Set(key, len)) => {
+					set::handle_set(&cache, &stats, set_timeout, &mut connection, key, len)
+				},
 				(true, Command::Del(key)) => handle_del(&cache, &stats, key),
 
 				(true, Command::Has(key)) => handle_has(&cache, &stats, key),
@@ -272,8 +287,22 @@ impl Server {
 				(true, Command::Status) => handle_status(&cache),
 				(true, Command::SelfStats) => handle_self_stats(&cache, &stats),
 
+				// The value and the TTL of a SET are still on the socket, and
+				// are read past so the connection stays in step.
+				(false, Command::Set(_, len)) => {
+					set::handle_unauthorized_set(&mut connection, &stats, set_timeout, len)
+				},
+
 				_ => Err(ServerError::Unauthorized),
 			};
+
+			// A SET whose value or TTL did not arrive, or could not be skipped,
+			// has lost its place in the stream: nothing more can be read from
+			// the connection, and no reply is owed to a client that is gone.
+			if matches!(sheet_result, Err(ServerError::Disconnected)) {
+				let _ = connection.close();
+				return;
+			}
 
 			let sheet = sheet_result.unwrap_or_else(|err| err.to_sheet());
 
@@ -371,17 +400,6 @@ fn handle_auth(connection: &mut Connection, token: &Buffer) -> SheetResult {
 	Ok(sheet)
 }
 
-/// Times ONE cache call and nothing around it. The request is already parsed
-/// and the response is not yet written when this runs.
-fn timed<T>(stats: &SelfStats, slot: u8, call: impl FnOnce() -> T) -> T {
-	let started = Instant::now();
-	let out = call();
-
-	stats.record(slot, started.elapsed().as_nanos() as u64);
-
-	out
-}
-
 fn handle_get(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer) -> SheetResult {
 	// Timed inline rather than through `timed` so the outcome can pick the
 	// slot: hits and misses are different operations and must not share an
@@ -402,18 +420,6 @@ fn handle_get(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer) -> SheetResult
 				.write_buf(&object)
 				.into_sheet()
 		})
-		.map_err(ServerError::CacheError)
-}
-
-fn handle_set(
-	cache: &Arc<Cache>,
-	stats: &SelfStats,
-	key: Buffer,
-	value: Buffer,
-	ttl: Option<u32>,
-) -> SheetResult {
-	timed(stats, CommandByte::SET, || cache.set(key, &value, ttl))
-		.map(|_| SheetBuilder::new().write_bool(true).into_sheet())
 		.map_err(ServerError::CacheError)
 }
 
