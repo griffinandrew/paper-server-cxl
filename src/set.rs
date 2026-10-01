@@ -15,7 +15,8 @@
 //!
 //! ```text
 //!   read the key and the value's length        (the Set command: nothing else)
-//!   register_setter()                          this SET is in flight
+//!   register_setter()                          this SET is in flight, if that can
+//!        |                                     widen anything (`counts_setters`)
 //!   reserve_set(key, len, None, deadline)      admission: the size checks, the
 //!        |                                     metadata cap, the tier and the byte
 //!        |                                     gate, which WAITS for demotions to
@@ -33,6 +34,19 @@
 //! so TCP flow control slows that one client and no cache DRAM is held for it.
 //! The receive timeout (`SO_RCVTIMEO`) is armed for the value and the TTL and
 //! disarmed after, because between commands a connection waits without limit.
+//!
+//! # Counting setters
+//!
+//! `register_setter()` counts a SET in flight into the byte gate's near band, which
+//! the cache widens to `(concurrency_hint + live setters) x value_hint` (`bands`,
+//! the cache's gate.rs). With `value_hint` 0, the default, that is a product with
+//! 0: a setter widens nothing, whatever the count. Each registration and each
+//! release unparks the cache's policy worker all the same (`kick_policy_worker`,
+//! the cache's status.rs), two wake-ups per SET for nothing. So a SET is
+//! registered only when the cache runs with a `value_hint` above 0, which
+//! `counts_setters` reads once, at start-up, from the configuration the cache
+//! actually runs (`PaperCache::gate_config`, `PAPER_GATE_VALUE_HINT_BYTES`
+//! included): there is no second setting here to keep in step with it.
 //!
 //! # What a failure does
 //!
@@ -64,11 +78,53 @@ use log::warn;
 use paper_utils::stream::Buffer;
 
 use crate::{
+	config::Config,
 	connection::Connection,
 	error::ServerError,
 	selfstats::SelfStats,
 	server::{Cache, SheetResult},
 };
+
+/// What the SET arm needs beside the cache and the connection, fixed when the
+/// server starts.
+#[derive(Clone, Copy)]
+pub struct SetSettings {
+	/// How long a SET may wait for the cache to take it, and then for each read of
+	/// its value and its TTL (`set_timeout`).
+	pub timeout: Duration,
+
+	/// Whether a SET in flight is registered with the cache as a setter. See
+	/// `counts_setters`.
+	#[cfg(feature = "tiered")]
+	pub count_setters: bool,
+}
+
+impl SetSettings {
+	#[cfg(feature = "tiered")]
+	pub fn new(config: &Config, cache: &Cache) -> SetSettings {
+		SetSettings {
+			timeout: config.set_timeout(),
+			count_setters: counts_setters(cache),
+		}
+	}
+
+	#[cfg(feature = "all_dram")]
+	pub fn new(config: &Config, _cache: &Cache) -> SetSettings {
+		SetSettings {
+			timeout: config.set_timeout(),
+		}
+	}
+}
+
+/// Whether a SET in flight is worth registering as a setter: only if the cache's
+/// near band is widened by setters at all, which it is when the cache runs with
+/// a `value_hint` above 0. The configuration is the cache's own, as built (the
+/// environment's `PAPER_GATE_VALUE_HINT_BYTES` applied), and does not change
+/// while the server runs: nothing here calls `set_gate_config`.
+#[cfg(feature = "tiered")]
+pub fn counts_setters(cache: &Cache) -> bool {
+	cache.gate_config().value_hint > 0
+}
 
 /// `Instant::now() + timeout`, or a time far enough ahead not to matter if the
 /// sum does not fit the clock (the config caps a timeout at a day, so it does).
@@ -82,7 +138,12 @@ fn deadline_after(start: Instant, timeout: Duration) -> Instant {
 /// four of TTL. Gives up at one `timeout` from now, and each read also waits at
 /// most that long. On success the connection is in step and the receive timeout
 /// is disarmed again; on failure the caller closes the connection.
-fn skip_rest(connection: &mut Connection, stats: &SelfStats, len: u32, timeout: Duration) -> Result<(), ServerError> {
+fn skip_rest(
+	connection: &mut Connection,
+	stats: &SelfStats,
+	len: u32,
+	timeout: Duration,
+) -> Result<(), ServerError> {
 	let deadline = deadline_after(Instant::now(), timeout);
 
 	let skipped = connection
@@ -111,10 +172,10 @@ fn skip_rest(connection: &mut Connection, stats: &SelfStats, len: u32, timeout: 
 pub fn handle_unauthorized_set(
 	connection: &mut Connection,
 	stats: &SelfStats,
-	timeout: Duration,
+	settings: &SetSettings,
 	len: u32,
 ) -> SheetResult {
-	skip_rest(connection, stats, len, timeout)?;
+	skip_rest(connection, stats, len, settings.timeout)?;
 
 	Err(ServerError::Unauthorized)
 }
@@ -124,7 +185,7 @@ pub fn handle_unauthorized_set(
 pub fn handle_set(
 	cache: &Arc<Cache>,
 	stats: &SelfStats,
-	timeout: Duration,
+	settings: &SetSettings,
 	connection: &mut Connection,
 	key: Buffer,
 	len: u32,
@@ -133,11 +194,15 @@ pub fn handle_set(
 
 	use crate::selfstats::SLOT_SET_REFUSED;
 
+	let timeout = settings.timeout;
+
 	// One live setter per SET in flight, not per connection: the byte gate widens
 	// the band it holds a fast tier to by the setters that could be mid-flight
-	// when it fills, and an idle connection is none of them. The guard lives to
-	// the end of this function, which is the end of the SET.
-	let _setter = cache.register_setter();
+	// when it fills, and an idle connection is none of them. Only when that widens
+	// anything (see `counts_setters`): the registration and the release each wake
+	// the policy worker. The guard lives to the end of this function, which is the
+	// end of the SET.
+	let _setter = settings.count_setters.then(|| cache.register_setter());
 
 	let started = Instant::now();
 	let deadline = deadline_after(started, timeout);
@@ -233,7 +298,7 @@ pub fn handle_set(
 pub fn handle_set(
 	cache: &Arc<Cache>,
 	stats: &SelfStats,
-	_timeout: Duration,
+	_settings: &SetSettings,
 	connection: &mut Connection,
 	key: Buffer,
 	len: u32,

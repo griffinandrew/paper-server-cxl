@@ -142,6 +142,13 @@ fn main() {
 		config.set_timeout().as_millis(),
 	);
 
+	#[cfg(feature = "tiered")]
+	if server.counts_setters() {
+		info!("SETs in flight are counted into the byte gate's near band (value hint above 0)");
+	} else {
+		info!("SETs in flight are not counted: with a value hint of 0 a setter widens nothing");
+	}
+
 	#[cfg(feature = "all_dram")]
 	info!(
 		"Serving {} from DRAM alone, with max size {} B",

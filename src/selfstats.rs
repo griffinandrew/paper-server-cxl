@@ -455,7 +455,13 @@ pub fn render(stats: &SelfStats, cache: &Cache) -> String {
 	// How SETs fared at the byte gate, and the server's own counts of the ones
 	// it refused or abandoned. Last: it is the newest section.
 	#[cfg(feature = "tiered")]
-	render_set_admission(&mut out, stats, &cache.hybrid_stats(), cache.live_setters());
+	render_set_admission(
+		&mut out,
+		stats,
+		&cache.hybrid_stats(),
+		cache.live_setters(),
+		cache.gate_config().value_hint,
+	);
 
 	out
 }
@@ -542,13 +548,21 @@ fn render_migrations(out: &mut String, tier: &paper_cache::HybridStats) {
 ///
 /// `live setters` is the number of SETs in flight right now (a setter is
 /// registered per SET, not per connection, so an idle connection counts for
-/// nothing). `refused` is what the server answered with codes 8 and 9 and the
+/// nothing), and only when `value hint` is above 0: with 0 a setter would widen
+/// no band, so the server does not register SETs and the count stays 0.
+/// `refused` is what the server answered with codes 8 and 9 and the
 /// size checks; `gate stalls` is the gate's own count of times its watchdog
 /// found nothing freed, which is not the same quantity (a SET can also be
 /// refused when its deadline passes while the gate still sees progress). No
 /// line starts with a word `run_mem.py` anchors on.
 #[cfg(feature = "tiered")]
-fn render_set_admission(out: &mut String, stats: &SelfStats, tier: &paper_cache::HybridStats, live_setters: u32) {
+fn render_set_admission(
+	out: &mut String,
+	stats: &SelfStats,
+	tier: &paper_cache::HybridStats,
+	live_setters: u32,
+	value_hint: u64,
+) {
 	let load = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
 
 	let stalled = load(&stats.refused_stalled);
@@ -572,6 +586,16 @@ fn render_set_admission(out: &mut String, stats: &SelfStats, tier: &paper_cache:
 	let _ = writeln!(out, "skip failures  {}", load(&stats.skip_failures));
 	let _ = writeln!(out, "bytes skipped  {} B", load(&stats.bytes_skipped));
 	let _ = writeln!(out, "live setters   {live_setters}");
+
+	match value_hint {
+		0 => {
+			let _ = writeln!(out, "value hint     0 B: a setter would widen no band, so SETs in flight are not counted");
+		},
+
+		hint => {
+			let _ = writeln!(out, "value hint     {hint} B: each SET in flight is counted into the near band");
+		},
+	}
 	let _ = writeln!(
 		out,
 		"gate           {:?}, {} waits ({:.1} ms waited, {:.1} ms longest)",
@@ -767,7 +791,7 @@ mod tests {
 		};
 
 		let mut out = String::new();
-		render_set_admission(&mut out, &stats, &tier, 3);
+		render_set_admission(&mut out, &stats, &tier, 3, 65_536);
 
 		assert_eq!(
 			out,
@@ -779,6 +803,7 @@ mod tests {
 			 skip failures  1\n\
 			 bytes skipped  1024 B\n\
 			 live setters   3\n\
+			 value hint     65536 B: each SET in flight is counted into the near band\n\
 			 gate           Off, 7 waits (12.5 ms waited, 3.2 ms longest)\n\
 			 gate stalls    11 watchdog stalls, 13 refusals; metadata overflows 17\n\
 			 waiters        19 waiting now (at most 23), 29 B reserved\n\
@@ -788,6 +813,23 @@ mod tests {
 		for line in out.lines() {
 			assert!(!read_by_run_mem(line), "run_mem.py would read {line:?} as one of its figures");
 		}
+	}
+
+	#[test]
+	fn the_value_hint_line_says_whether_sets_in_flight_are_counted() {
+		let line = |hint: u64| {
+			let mut out = String::new();
+
+			render_set_admission(&mut out, &SelfStats::new(), &paper_cache::HybridStats::default(), 0, hint);
+
+			out.lines().find(|line| line.starts_with("value hint")).unwrap().to_owned()
+		};
+
+		assert_eq!(line(0), "value hint     0 B: a setter would widen no band, so SETs in flight are not counted");
+		assert_eq!(line(4096), "value hint     4096 B: each SET in flight is counted into the near band");
+
+		// Neither starts with a word run_mem.py anchors on.
+		assert!(!read_by_run_mem(&line(0)) && !read_by_run_mem(&line(4096)));
 	}
 
 	/// The section is wired to the cache: appended after every other section,

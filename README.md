@@ -93,6 +93,7 @@ only ever grows by appending a section:
 | `MEASURED vs MODELLED` | the allocator's per-pool totals beside the model; only with `measured_accounting` |
 | `PHYSICAL FAST TIER` | the bytes physically in the fast tier's value pool and its peak, the effective budget, hits by tier, the cache's measured DRAM metadata |
 | `MIGRATIONS AND CAPACITY PASSES` | the migration queue's depth, backlog and dispositions (applied, gone, declined, superseded), the correctives the reconcile queued and applied, and the capacity passes the eviction watermark armed: this cache's own counts since it was built |
+| `SET ADMISSION` | SETs committed, SETs refused by code (8, 9, other), body timeouts and aborts, bytes skipped, the live setters and the cache's value hint (see "SET" below), and the byte gate's waits, stalls and levels (settle, near, close). Refused SETs have a row of their own in the latency table too. |
 
 `run_mem.py` reads the report with line-anchored regular expressions
 (`^fast\s+\d+ objects`, `^slow\s+`, `^dram\s+`, `^promotions`, ...), so no line
@@ -118,7 +119,14 @@ and copy it again into the cache. The tiered build splits the set instead
 1. read the key and the value's length, and nothing more;
 2. `register_setter()` for this SET, counting it into the byte gate's near band
    while it is in flight (a SET, not a connection: an idle connection counts
-   for nothing);
+   for nothing) -- but only when that can widen anything. The band is widened by
+   `(concurrency_hint + live setters) x value_hint`, so with the cache's
+   `value_hint` at its default of 0 a setter widens nothing, and each
+   registration and release would wake the cache's policy worker for no effect.
+   The server reads the cache's `value_hint` once at start-up
+   (`PaperCache::gate_config`, so `PAPER_GATE_VALUE_HINT_BYTES` applies) and
+   registers SETs only when it is above 0; the report's `value hint` line says
+   which, and `live setters` stays 0 without one;
 3. `reserve_set(key, len, None, now + set_timeout)`: the size checks, the
    metadata cap, the tier and the byte gate, which **waits** for demotions to
    free room when the fast tier is full, at most until the deadline. The value
@@ -148,11 +156,8 @@ What a failure does:
   instead.
 * **The value or the TTL does not arrive whole** (timeout, hang-up, reset): the
   pending set is dropped, which frees its allocation and refunds what it was
-  charged, exactly once, and the connection is closed. A stalled client
-  therefore pins at most the value's length in fast bytes, for one
-  `set_timeout`. The timeout bounds each read, not the whole value: a client
-  that delivers a byte just inside every timeout keeps its bytes charged for as
-  long as it keeps doing so.
+  charged, exactly once, and the connection is closed (see "Known limits" for
+  what the timeout does not bound).
 * **A client that has not authorized** has its SET consumed the same way and is
   answered with server error 3.
 
@@ -179,6 +184,26 @@ A refused SET is a complete exchange: the whole request, value and TTL, is
 consumed before the reply is written, so the next command on the connection
 parses. A SET that is *abandoned* gets no reply: its connection is closed.
 
+## Known limits
+
+* `SO_RCVTIMEO` bounds each read of a SET's value, not the whole value. A client
+  that delivers a byte just inside every timeout keeps its bytes charged for as
+  long as it keeps dribbling: `set_timeout` as a deadline covers only the wait
+  for admission, before the value is read.
+* `fill()` charges the allocation before the first byte of the value arrives, so
+  a client that has sent its key and length and gone quiet pins the value's
+  length in fast bytes for one `set_timeout`.
+* A merged-store build with a toy fast tier refuses new keys (cache error 9): the
+  store's own structures fill a tier of a few MiB under the default measured
+  metadata model, after a few dozen keys. Give it a fast tier of at least about
+  8 MiB, or set `PAPER_GATE_METADATA_MODEL=per_object`.
+* The Dockerfile is upstream's and is not maintained for the tiered build, which
+  needs a nightly toolchain and the cache's Git dependency.
+* Lengths on the wire are trusted before the bytes arrive: a key, an AUTH token
+  or a policy string is read into a `vec![0; declared_len]`, as upstream does
+  (paper-utils), so a client can declare a multi-GiB one. The flat build reads a
+  value the same way.
+
 ## Testing
 
 `cargo test --release` (with the features the build was made with) runs the unit
@@ -187,7 +212,8 @@ port of its own and drives the SET path over a socket in hand-built frames -- a
 value read into the cache byte-exact, a value too big for the cache skipped, a
 client that stalls mid-value closed and its fast bytes refunded, a SET refused
 with cache error 8 and another with 9 and the connection still in step, an
-unauthorized SET consumed. `SET_PATH_TEST_LOGS=<dir>` keeps each server's log.
+unauthorized SET consumed, and SETs in flight counted as setters only when the
+cache's value hint is above 0. `SET_PATH_TEST_LOGS=<dir>` keeps each server's log.
 
 `scripts/probe_server.py` is the same kind of probe for a server you started
 yourself, with the wire's every command, binary keys up to 250 bytes, values over

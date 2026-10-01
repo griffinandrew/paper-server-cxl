@@ -27,6 +27,8 @@ for it; the tiered build only, except `skip`:
 
     stall     PAPER_GATE_STALL_WINDOW_MS=100 paper-server --max-size 256MiB \
                   --fast-tier-size 16MiB --set-timeout 1500
+              (run it also with PAPER_GATE_VALUE_HINT_BYTES=1048576: the probe reads the server's
+              own report of the hint and expects SETs in flight to be counted as setters only then)
     deadline  PAPER_GATE_STALL_WINDOW_MS=60000 paper-server --max-size 256MiB \
                   --fast-tier-size 16MiB --set-timeout 600
     metadata  PAPER_GATE_METADATA_FLOOR_BYTES=1048576 paper-server \
@@ -476,6 +478,9 @@ def basic(args):
 #             points of a SET (before the value, mid-value, one byte short of it, before the TTL) and so pin the tier;
 #             a fifth SET is then refused with cache error 8, answered on a connection that stays in step; the
 #             stalled clients are timed out and closed, and the fast-tier byte count returns to its prior value.
+#             Live setters: 4 while four SETs are in flight when the server's value hint is above 0 (PAPER_GATE_VALUE_HINT_BYTES,
+#             which the report shows), and 0 when it is 0, a setter then widening no band; with a hint the near level drops
+#             while they are in flight, without one it never moves.
 #   deadline  the gate's stall window is a minute and the set timeout 600 ms: clients that dribble a byte inside
 #             every receive timeout keep the tier pinned past it, a SET is refused with cache error 8 when the set
 #             timeout runs out (not the watchdog), and the dribblers are timed out once they go quiet.
@@ -503,6 +508,9 @@ def s9(text):
         "skip_failures": g(r"^skip failures\s+(\d+)"),
         "skipped": g(r"^bytes skipped\s+(\d+) B"),
         "setters": g(r"^live setters\s+(\d+)"),
+        "value_hint": g(r"^value hint\s+(\d+) B"),
+        "settle": g(r"^levels\s+settle (\d+) B"),
+        "near": g(r"^levels\s+settle \d+ B, near (\d+) B"),
         "overflows": g(r"^gate stalls\s+.*metadata overflows (\d+)"),
         "stall_errors": g(r"^gate stalls\s+\d+ watchdog stalls, (\d+) refusals"),
     }
@@ -545,7 +553,10 @@ def stall(args):
     ctl = Client(port, connect_retries=50)
     base = fetch(ctl)
     eff, p0 = base["eff_fast_cap"], base["phys_fast"]
-    print(f"== stall scenario: eff {eff} B, phys fast {p0} B, setters {base['setters']}")
+    hint = base["value_hint"]
+    print(f"== stall scenario: eff {eff} B, phys fast {p0} B, setters {base['setters']}, value hint {hint} B")
+    c.check("the report says what the value hint is", hint is not None)
+    counted = 4 if hint else 0
     c.check("the byte gate is on (a stall is possible at all)", re.search(r"^gate\s+Enabled", base["text"], re.M) is not None)
     c.check("no setter is live at rest", base["setters"] == 0)
     if eff < 4 << 20:
@@ -574,7 +585,23 @@ def stall(args):
         return fetch(ctl)["phys_fast"] >= p0 + 4 * hold
     c.check(f"four stalled SETs pin {4 * hold} B of the fast tier", eventually(pinned, 5.0), f"phys {fetch(ctl)['phys_fast']}")
     mid = fetch(ctl)
-    c.check("four live setters while four SETs are in flight", mid["setters"] == 4, f"setters {mid['setters']}")
+    c.check(
+        f"{counted} live setters while four SETs are in flight (value hint {hint} B)",
+        mid["setters"] == counted,
+        f"setters {mid['setters']}",
+    )
+    if hint:
+        c.check(
+            "the setters in flight widen the near band: its level drops",
+            eventually(lambda: fetch(ctl)["near"] + (256 << 10) < base["near"], 3.0),
+            f"near {fetch(ctl)['near']} vs {base['near']} at rest",
+        )
+    else:
+        c.check(
+            "a setter would widen no band: the near level does not move",
+            abs(fetch(ctl)["near"] - base["near"]) <= 65536,
+            f"near {fetch(ctl)['near']} vs {base['near']} at rest",
+        )
 
     # The refusal: a SET that does not fit, answered with code 8, on a connection that stays in step.
     probe = Client(port)
@@ -602,6 +629,7 @@ def stall(args):
     done = fetch(ctl)
     c.check("four body timeouts are counted", done["timeouts"] == 4, f"{done['timeouts']} (aborts {done['aborts']})")
     c.check("no setter is live again", eventually(lambda: fetch(ctl)["setters"] == 0, 3.0))
+    c.check("and the near level is back where it was", eventually(lambda: abs(fetch(ctl)["near"] - base["near"]) <= 65536, 3.0))
     c.check("the same SET is now admitted and reads back", probe.set(b"probe", big) and probe.get(b"probe") == big)
 
     # A client that hangs up mid-value is an abort, refunded at once.

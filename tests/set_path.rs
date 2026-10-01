@@ -328,6 +328,24 @@ impl Report {
 			.parse()
 			.unwrap()
 	}
+
+	/// The number after `word` on the line that starts with `label`.
+	fn figure_after(&self, label: &str, word: &str) -> u64 {
+		let line = self
+			.0
+			.lines()
+			.find(|line| line.starts_with(label))
+			.unwrap_or_else(|| panic!("no line starts with {label:?} in\n{}", self.0));
+		let at = line.find(word).unwrap_or_else(|| panic!("no {word:?} on {line:?}"));
+
+		line[at + word.len()..]
+			.trim_start()
+			.split(|c: char| !c.is_ascii_digit())
+			.next()
+			.unwrap()
+			.parse()
+			.unwrap()
+	}
 }
 
 fn eventually(within: Duration, mut condition: impl FnMut() -> bool) -> bool {
@@ -412,7 +430,10 @@ fn a_client_that_stalls_mid_value_is_closed_and_its_bytes_come_back() {
 		eventually(Duration::from_secs(3), || control.report().figure("phys fast") >= before + whole.len() as u64),
 		"the stalled SET pins no fast bytes",
 	);
-	assert_eq!(control.report().figure("live setters"), 1);
+
+	// The server's value hint is 0 here, so a setter would widen no band and the
+	// SET in flight is not counted (see the test of the hint below).
+	assert_eq!(control.report().figure("live setters"), 0);
 
 	// ...and the server gives up on it, closes the connection and refunds them.
 	assert!(stalled.closed_within(Duration::from_secs(5)), "the server did not close the stalled client");
@@ -461,7 +482,7 @@ fn a_set_the_full_fast_tier_cannot_take_is_code_8_and_the_connection_stays_in_st
 		eventually(Duration::from_secs(5), || control.report().figure("phys fast") >= before + 4 * hold as u64),
 		"the four stalled SETs did not pin the tier",
 	);
-	assert_eq!(control.report().figure("live setters"), 4);
+	assert_eq!(control.report().figure("live setters"), 0, "value hint 0: SETs in flight are not counted");
 
 	// A fifth SET waits at the byte gate for the stall window, and is refused.
 	let mut client = server.client();
@@ -546,4 +567,82 @@ fn an_unauthorized_set_is_consumed_and_refused_with_server_error_3() {
 
 	client.auth(b"tok");
 	assert_eq!(client.get(b"anon"), Err(Refusal { server: 0, cache: Some(1) }));
+}
+
+#[test]
+fn a_set_in_flight_is_counted_as_a_setter_only_when_the_value_hint_could_widen_the_band() {
+	let args = ["--max-size", "64MiB", "--fast-tier-size", "32MiB", "--set-timeout", "2000"];
+	let unhinted = Server::start(&args, &[]);
+	let hinted = Server::start(&args, &[("PAPER_GATE_VALUE_HINT_BYTES", "1048576")]);
+
+	for (server, hint, counted) in [(&unhinted, 0u64, 0u64), (&hinted, 1 << 20, 3)] {
+		let mut control = server.client();
+		let report = control.report();
+		let before = report.figure("phys fast");
+		let idle_near = report.figure_after("levels", "near");
+
+		assert_eq!(report.figure("value hint"), hint);
+
+		// Three SETs of 1 MiB, each stalled before its last byte, and some idle
+		// connections beside them.
+		let held = value(1 << 20, 6);
+		let mut stalled = Vec::new();
+
+		for i in 0..3 {
+			let mut client = server.client();
+
+			client.send(&partial_set(format!("held-{i}").as_bytes(), &held, held.len() - 1));
+			stalled.push(client);
+		}
+
+		let idle: Vec<Client> = (0..4).map(|_| server.client()).collect();
+
+		assert!(
+			eventually(Duration::from_secs(3), || {
+				control.report().figure("phys fast") >= before + 3 * held.len() as u64
+			}),
+			"the stalled SETs did not pin the tier (value hint {hint})",
+		);
+
+		// In flight, they are counted -- one apiece, the idle connections not at
+		// all -- when a setter can widen the near band, and not at all when it
+		// cannot.
+		assert_eq!(control.report().figure("live setters"), counted, "value hint {hint}");
+
+		// What the count does: the live setters x the hint widen the near band, down
+		// to just above the settle level, once the policy worker has published it.
+		// With a hint of 0 the level never moves.
+		if hint > 0 {
+			assert!(
+				eventually(Duration::from_secs(3), || {
+					control.report().figure_after("levels", "near") + (256 << 10) < idle_near
+				}),
+				"the near level did not move with the setters in flight",
+			);
+		} else {
+			thread::sleep(Duration::from_millis(300));
+
+			assert!(control.report().figure_after("levels", "near").abs_diff(idle_near) <= 65_536);
+		}
+
+		// Timed out and closed, they are released: the count and the level go back.
+		for client in &mut stalled {
+			assert!(client.closed_within(Duration::from_secs(6)));
+		}
+
+		assert!(
+			eventually(Duration::from_secs(3), || {
+				control.report().figure("live setters") == 0 && control.report().figure("phys fast") == before
+			}),
+			"the setters or the fast bytes were not released (value hint {hint})",
+		);
+		assert!(
+			eventually(Duration::from_secs(3), || {
+				control.report().figure_after("levels", "near").abs_diff(idle_near) <= 65_536
+			}),
+			"the near level did not return (value hint {hint})",
+		);
+
+		drop(idle);
+	}
 }

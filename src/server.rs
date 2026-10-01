@@ -38,7 +38,7 @@ use crate::{
 	connection::Connection,
 	error::ServerError,
 	selfstats::{self, SLOT_GET_MISS, SelfStats, timed},
-	set,
+	set::{self, SetSettings},
 };
 
 /// Keys stay `Buffer` (the protocol's byte strings); values become
@@ -88,9 +88,9 @@ pub struct Server {
 	streams:         Arc<Mutex<Vec<Option<TcpStream>>>>,
 	auth_token:      Option<u64>,
 
-	/// How long a SET may wait for the cache to take it and then for each read
-	/// of its value (see `set`).
-	set_timeout: Duration,
+	/// What the SET arm needs: its timeout and whether it counts setters (see
+	/// `set`).
+	set_settings: SetSettings,
 
 	shutdown: Arc<AtomicBool>,
 }
@@ -108,6 +108,8 @@ impl Server {
 			},
 		};
 
+		let set_settings = SetSettings::new(config, &cache);
+
 		let mut streams = Vec::with_capacity(config.max_connections());
 		for _ in 0..config.max_connections() {
 			streams.push(None);
@@ -124,7 +126,7 @@ impl Server {
 			streams: Arc::new(Mutex::new(streams)),
 			auth_token: config.auth_token(),
 
-			set_timeout: config.set_timeout(),
+			set_settings,
 
 			shutdown: Arc::new(AtomicBool::new(false)),
 		};
@@ -150,6 +152,13 @@ impl Server {
 		unsafe { libc::shutdown(fd, libc::SHUT_RD) };
 
 		Ok(())
+	}
+
+	/// Whether a SET in flight is registered with the cache as a setter: only
+	/// when the cache's near band is widened by setters (`set::counts_setters`).
+	#[cfg(feature = "tiered")]
+	pub fn counts_setters(&self) -> bool {
+		self.set_settings.count_setters
 	}
 
 	/// Prints the self-stats report to stderr every `every`, so a long run
@@ -216,7 +225,7 @@ impl Server {
 					let connection = Connection::new(stream, self.auth_token);
 					let cache = self.cache.clone();
 					let stats = self.stats.clone();
-					let set_timeout = self.set_timeout;
+					let set_settings = self.set_settings;
 					let streams = self.streams.clone();
 
 					self.pool.execute(move || {
@@ -227,7 +236,7 @@ impl Server {
 							return;
 						};
 
-						Server::handle_connection(connection, cache, stats, set_timeout);
+						Server::handle_connection(connection, cache, stats, set_settings);
 						info!("Disconnected: {address}");
 
 						remove_stream(streams, index);
@@ -245,7 +254,7 @@ impl Server {
 		mut connection: Connection,
 		cache: Arc<Cache>,
 		stats: Arc<SelfStats>,
-		set_timeout: Duration,
+		set_settings: SetSettings,
 	) {
 		loop {
 			let command = match connection.get_command() {
@@ -270,7 +279,7 @@ impl Server {
 
 				(true, Command::Get(key)) => handle_get(&cache, &stats, key),
 				(true, Command::Set(key, len)) => {
-					set::handle_set(&cache, &stats, set_timeout, &mut connection, key, len)
+					set::handle_set(&cache, &stats, &set_settings, &mut connection, key, len)
 				},
 				(true, Command::Del(key)) => handle_del(&cache, &stats, key),
 
@@ -290,7 +299,7 @@ impl Server {
 				// The value and the TTL of a SET are still on the socket, and
 				// are read past so the connection stays in step.
 				(false, Command::Set(_, len)) => {
-					set::handle_unauthorized_set(&mut connection, &stats, set_timeout, len)
+					set::handle_unauthorized_set(&mut connection, &stats, &set_settings, len)
 				},
 
 				_ => Err(ServerError::Unauthorized),
