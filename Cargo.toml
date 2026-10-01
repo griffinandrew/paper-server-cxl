@@ -55,7 +55,8 @@ tiered = ["paper-cache/key_value_pmem"]
 
 # The flat all-DRAM baseline, `PaperCache<Buffer, BufferDRAM>`: one tier, no
 # gate, no slow node. Without `key_value_pmem`, so that nothing of the flat
-# cache can land on the slow node.
+# cache can land on the slow node. It takes `merged_object_store` and
+# `thin_header` below as the tiered build does.
 all_dram = ["paper-cache/all_dram"]
 
 # The object store. Off: DashMap (a map and a separate eviction stack). On: the
@@ -65,7 +66,8 @@ merged_object_store = ["paper-cache/merged_object_store"]
 
 # The value layout. Off: a DRAM header and the bytes in a second allocation. On:
 # a 16-byte DRAM header in front of one tiered item holding the length, the
-# expiry, the key and the bytes, so the key tiers with the value.
+# expiry, the key and the bytes, so the key tiers with the value (under
+# `all_dram` the item is the same, in DRAM).
 thin_header = ["paper-cache/thin_header"]
 
 # Per-pool allocator counters, reported beside the cache's own accounting in the

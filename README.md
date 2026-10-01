@@ -24,7 +24,10 @@ cargo build --release                       # tiered, DashMap, default layout
 cargo build --release --features thin_header
 cargo build --release --features merged_object_store
 cargo build --release --features merged_object_store,thin_header
-cargo build --release --no-default-features --features all_dram
+cargo build --release --no-default-features --features all_dram     # flat: the same four builds
+cargo build --release --no-default-features --features all_dram,thin_header
+cargo build --release --no-default-features --features all_dram,merged_object_store
+cargo build --release --no-default-features --features all_dram,merged_object_store,thin_header
 ```
 
 On the benchmark box rustup knows that nightly as `nightly`, not by its dated
@@ -41,9 +44,9 @@ fail fast and visibly instead. Debug builds still unwind.
 | Feature | Effect |
 |---|---|
 | `tiered` (default) | Serves `PaperCache<Buffer, TieredBuffer>`: values live in the fast (DRAM) or slow (CXL) tier. Enables the cache's `key_value_pmem`, which with `hybrid_cache_common` (always on) puts the TTL expiry index in the slow tier too. |
-| `all_dram` | Serves the flat `PaperCache<Buffer, BufferDRAM>` instead, the all-DRAM baseline: one tier, no admission gate, nothing on the slow node (no `key_value_pmem`). Needs `--no-default-features`; building both is a compile error, and neither does not build. |
-| `merged_object_store` | The merged store, where the object map is the eviction order. Serves only the lru, lfu, fifo and clock policies. |
-| `thin_header` | The thin value layout: a 16-byte DRAM header in front of one tiered item holding the length, the expiry, the key and the bytes. |
+| `all_dram` | Serves the flat `PaperCache<Buffer, BufferDRAM>` instead, the all-DRAM baseline: one tier, no admission gate, nothing on the slow node (no `key_value_pmem`). Needs `--no-default-features`; building both is a compile error, and neither does not build. It takes `merged_object_store` and `thin_header` as the tiered build does, so every tiered build has a flat counterpart with the same store and layout (see "Flat builds"). |
+| `merged_object_store` | The merged store, where the object map is the eviction order. Serves only the lru, lfu, fifo and clock policies (flat: `lru-compact`, `lfu-compact`, `fifo-compact`, `clock-compact`); another is refused at start-up. |
+| `thin_header` | The thin value layout: a 16-byte DRAM header in front of one item holding the length, the expiry, the key and the bytes. In a tiered build the item is what tiers; under `all_dram` it is the same item, in DRAM. |
 | `measured_accounting` | Per-pool allocator counters, reported beside the cache's own accounting. |
 
 The cache hosts all 23 of its tiered designs in every tiered build and picks one
@@ -53,6 +56,41 @@ its tests; nothing here enables them.
 
 The cache installs its own `#[global_allocator]` (a NUMA-bound jemalloc), so
 this crate declares none.
+
+### Flat builds
+
+`all_dram` hosts the nine flat designs (`--policy`: `lru-compact`, `lfu-compact`,
+`fifo-compact`, `clock-compact`, `sieve-compact`, `mru-compact`,
+`2q-compact-<k_in>-<k_out>`, `arc`, `s3-fifo-compact-<ratio>`) and takes the two
+switches the tiered build has, so a flat run pairs with a tiered one under the same
+store and value layout (`all_dram,thin_header` against `thin_header`, and so on).
+What each serves, and what it charges per object beyond the key and the value
+(`SIZE` and the report's `used size` are the sum):
+
+| Flat build | Policies served | Policy overhead per object |
+|---|---|---|
+| `all_dram` | all nine | 116 B (lru, lfu, fifo, clock, sieve, mru), 132 B (2q, arc, s3-fifo) |
+| `all_dram,thin_header` | all nine | 100 B, 116 B |
+| `all_dram,merged_object_store` | lru, lfu, fifo, clock | 66 B |
+| `all_dram,merged_object_store,thin_header` | lru, lfu, fifo, clock | 50 B |
+
+The merged store refuses the other five at start-up (`could not construct the cache:
+the merged object store does not implement arc; ...`).
+
+The overheads are the cache's (`src/object/overhead.rs`, at the pinned revision):
+
+* DashMap: the eviction stack (56 B for the one-queue stacks, 72 B for 2Q, ARC and
+  S3-FIFO) plus the object map's row, which is 40 B plus the value's header
+  allocation (32 B split, 16 B thin) less the 12 B (an 8-byte hash and the 4-byte
+  expiry) that the base size also counts: 60 B split, 44 B thin.
+* Merged store: its own 46 B plus the same header allocation less the same 12 B.
+
+The rest of an object's charge is its key and the allocator's size class for its
+value; under `thin_header` the item is one allocation (a 12-byte header, the key,
+the value) and the key's own charge is its 8-byte hash. `scripts/flat_figures.py`
+writes the formulas out and checks a running flat server against them: `SIZE` and the
+report's `used size` per object come out exactly as predicted, for every shape tried,
+on every flat build (split and thin, DashMap and merged).
 
 ## Configuration
 
@@ -222,6 +260,11 @@ parses. A SET that is *abandoned* gets no reply: its connection is closed.
   or a policy string is read into a `vec![0; declared_len]`, as upstream does
   (paper-utils), so a client can declare a multi-GiB one. The flat build reads a
   value the same way.
+* A merged-store build, tiered or flat, commits its slab in 4096-slot chunks per
+  shard (160 KiB at 40 B a slot, 32 shards: `merged_store.rs` in the cache), so
+  its measured DRAM sits about 5 MiB above the model once every shard holds an
+  object (5.0 MiB over after 100 keys). Read a merged build's `MEASURED vs
+  MODELLED` at a population far above that.
 * STATUS is upstream's frame, carrying this cache's own policy names
   (`lru-compact-hybrid`, `2q-compact-hybrid-0.2`, ...: `handle_status` in
   `src/server.rs`). The stock `paper-client` 1.11.0 parses each one as a name of
@@ -263,4 +306,5 @@ ignores the setting for tests).
 `scripts/probe_server.py` is the same kind of probe for a server you started
 yourself, with the wire's every command, binary keys up to 250 bytes, values over
 1 MiB and the self-stats report; see its header for the servers each scenario
-needs.
+needs. `scripts/flat_figures.py` is the probe of a flat build's per-object
+charges (see "Flat builds").
