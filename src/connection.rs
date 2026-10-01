@@ -14,7 +14,7 @@ use std::{
 
 use paper_utils::stream::StreamError;
 
-use crate::{command::Command, error::ServerError};
+use crate::{command::Command, error::ServerError, keybuf::KeyBuf};
 
 pub struct Connection {
 	stream: TcpStream,
@@ -60,8 +60,9 @@ impl Connection {
 		self.is_authorized
 	}
 
-	pub fn get_command(&mut self) -> Result<Command, ServerError> {
-		Command::from_stream(&mut self.stream).map_err(|err| match err {
+	/// Reads the next command; the key of one that names a key is left in `key`.
+	pub fn get_command(&mut self, key: &mut KeyBuf) -> Result<Command, ServerError> {
+		Command::from_stream(&mut self.stream, key).map_err(|err| match err {
 			StreamError::InvalidStream | StreamError::ClosedStream => ServerError::Disconnected,
 
 			_ => ServerError::InvalidCommand(err.to_string()),

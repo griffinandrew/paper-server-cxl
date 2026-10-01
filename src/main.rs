@@ -9,6 +9,7 @@ mod command;
 mod config;
 mod connection;
 mod error;
+mod keybuf;
 mod logo;
 mod selfstats;
 mod server;

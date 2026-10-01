@@ -389,6 +389,51 @@ fn a_value_is_read_into_the_cache_and_comes_back_byte_exact() {
 	assert_eq!(report.figure("live setters"), 0);
 }
 
+/// Every request's key is read into one buffer the connection keeps and lent to
+/// the cache as bytes, so keys of every length, one after the other on one
+/// connection, must never see each other's bytes: a long one, a short one, the
+/// empty one, ones past what the buffer keeps between requests (64 KiB), and
+/// short ones again, each set and then read back, each answered for its own
+/// bytes only -- a prefix of a key, or an extension of it, is another key.
+#[test]
+fn keys_of_changing_length_share_one_buffer_and_never_see_each_others_bytes() {
+	let server = Server::start(&["--max-size", "64MiB", "--fast-tier-size", "16MiB"], &[]);
+	let mut client = server.client();
+
+	let keys: Vec<Vec<u8>> = vec![
+		b"a-long-key-0123456789".to_vec(),
+		b"s".to_vec(),
+		Vec::new(),
+		vec![b'z'; 100_000],
+		b"a-long-key-0123456780".to_vec(),
+		b"s2".to_vec(),
+		vec![b'z'; 100_001],
+		b"\xff\x00\xfe".to_vec(),
+		[&b"a-long-key-0123456789"[..], b"+"].concat(),
+		vec![b'y'; 70_000],
+		b"a-long-key-0123456".to_vec(),
+	];
+
+	for (n, key) in keys.iter().enumerate() {
+		client.set(key, &value(300 + n, n as u8)).unwrap();
+	}
+
+	// Read back in the other order, so that each key follows one of another length.
+	for (n, key) in keys.iter().enumerate().rev() {
+		assert_eq!(client.get(key).unwrap(), value(300 + n, n as u8), "key {n} ({} B)", key.len());
+	}
+
+	// Keys that are not any of them -- the prefix and the extension of a key that
+	// is, and one byte off -- miss (cache error 1, KeyNotFound).
+	let miss = Err(Refusal { server: 0, cache: Some(1) });
+
+	assert_eq!(client.get(b"a-long-key-012345678"), miss);
+	assert_eq!(client.get(b"a-long-key-0123456789++"), miss);
+	assert_eq!(client.get(b"a-long-key-0123456788"), miss);
+	assert_eq!(client.get(&vec![b'z'; 99_999]), miss);
+	assert_eq!(client.get(&vec![b'z'; 100_002]), miss);
+}
+
 #[test]
 fn a_value_the_cache_cannot_hold_is_skipped_and_the_connection_stays_in_step() {
 	let server = Server::start(&["--max-size", "1MiB", "--fast-tier-size", "512KiB"], &[]);

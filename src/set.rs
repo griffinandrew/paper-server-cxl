@@ -14,17 +14,23 @@
 //! this arm runs them around the socket:
 //!
 //! ```text
-//!   read the key and the value's length        (the Set command: nothing else)
+//!   read the key and the value's length        (the Set command: the key is in the
+//!        |                                     connection's key buffer, `keybuf`)
 //!   register_setter()                          this SET is in flight, if that can
 //!        |                                     widen anything (`SetterCount`)
-//!   reserve_set(key, len, None, deadline)      admission: the size checks, the
+//!   reserve_set_borrowed(key, len, None, deadline)
+//!        |                                     admission, with the key as it is in
+//!        |                                     the buffer: the size checks, the
 //!        |                                     metadata cap, the tier and the byte
 //!        |                                     gate, which WAITS for demotions to
 //!        |                                     free room, at most until `deadline`
 //!        +-- Err: skip the value and the TTL, answer the code
 //!        v
 //!   permit.fill()                              the value's allocation, in the tier
-//!        |                                     the permit decided, UNINITIALIZED
+//!        |                                     the permit decided, UNINITIALIZED;
+//!        |                                     the key's bytes are copied into the
+//!        |                                     item (`thin_header`) -- no key buffer
+//!        |                                     is allocated for the set
 //!        v
 //!   read_exact_from(socket)                    the value, straight into it
 //!   read the TTL, set_ttl, commit()            published as `set` publishes
@@ -64,7 +70,7 @@
 //!
 //! # What a failure does
 //!
-//! * The cache refuses the set (`reserve_set` errs): nothing is allocated. The
+//! * The cache refuses the set (`reserve_set_borrowed` errs): nothing is allocated. The
 //!   value and its TTL are read and discarded through a small scratch buffer, so
 //!   the connection stays in step, and the refusal is the reply -- cache error
 //!   8 for `FastTierStalled`, 9 for `MetadataOverflow`, the usual codes for the
@@ -91,7 +97,6 @@ use std::{
 use log::warn;
 #[cfg(feature = "tiered")]
 use paper_cache::{GateConfig, GateMode};
-use paper_utils::stream::Buffer;
 
 use crate::{
 	config::Config,
@@ -235,7 +240,7 @@ pub fn handle_set(
 	stats: &SelfStats,
 	settings: &SetSettings,
 	connection: &mut Connection,
-	key: Buffer,
+	key: &[u8],
 	len: u32,
 ) -> SheetResult {
 	use paper_utils::{command::CommandByte, sheet::SheetBuilder};
@@ -255,7 +260,7 @@ pub fn handle_set(
 	let started = Instant::now();
 	let deadline = deadline_after(started, timeout);
 
-	let permit = match cache.reserve_set(key, len as usize, None, deadline) {
+	let permit = match cache.reserve_set_borrowed(key, len as usize, None, deadline) {
 		Ok(permit) => permit,
 
 		Err(err) => {
@@ -348,7 +353,7 @@ pub fn handle_set(
 	stats: &SelfStats,
 	_settings: &SetSettings,
 	connection: &mut Connection,
-	key: Buffer,
+	key: &[u8],
 	len: u32,
 ) -> SheetResult {
 	use paper_utils::{command::CommandByte, sheet::SheetBuilder, stream::read_buf};
@@ -366,7 +371,7 @@ pub fn handle_set(
 		Err(_) => return Err(ServerError::Disconnected),
 	};
 
-	timed(stats, CommandByte::SET, || cache.set(key, &value, ttl))
+	timed(stats, CommandByte::SET, || cache.set_borrowed(key, &value, ttl))
 		.map(|_| SheetBuilder::new().write_bool(true).into_sheet())
 		.map_err(ServerError::CacheError)
 }

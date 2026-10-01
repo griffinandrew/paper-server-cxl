@@ -136,7 +136,8 @@ fn get_cache_error_code(error: &CacheError) -> u8 {
 		| CacheError::DuplicatePolicies
 		| CacheError::AllocationFailed
 		| CacheError::InvalidFastTierSize
-		| CacheError::InvalidGateConfig => 0,
+		| CacheError::InvalidGateConfig
+		| CacheError::InvalidKey => 0,
 	}
 }
 
@@ -179,6 +180,7 @@ mod tests {
 			CacheError::AllocationFailed,
 			CacheError::InvalidFastTierSize,
 			CacheError::InvalidGateConfig,
+			CacheError::InvalidKey,
 		] {
 			assert_eq!(get_cache_error_code(&error), 0, "{error}");
 		}

@@ -37,6 +37,7 @@ use crate::{
 	config::Config,
 	connection::Connection,
 	error::ServerError,
+	keybuf::KeyBuf,
 	selfstats::{self, SLOT_GET_MISS, SelfStats, timed},
 	set::{self, SetSettings},
 };
@@ -257,8 +258,13 @@ impl Server {
 		stats: Arc<SelfStats>,
 		set_settings: SetSettings,
 	) {
+		// The connection's key buffer: every request's key is read into it, and
+		// the cache is given the key from there (`*_borrowed`), so a request
+		// allocates nothing for its key.
+		let mut key = KeyBuf::default();
+
 		loop {
-			let command = match connection.get_command() {
+			let command = match connection.get_command(&mut key) {
 				Ok(command) => command,
 
 				Err(ServerError::Disconnected) => {
@@ -278,16 +284,16 @@ impl Server {
 
 				(_, Command::Auth(token)) => handle_auth(&mut connection, &token),
 
-				(true, Command::Get(key)) => handle_get(&cache, &stats, key),
-				(true, Command::Set(key, len)) => {
-					set::handle_set(&cache, &stats, &set_settings, &mut connection, key, len)
+				(true, Command::Get) => handle_get(&cache, &stats, key.bytes()),
+				(true, Command::Set(len)) => {
+					set::handle_set(&cache, &stats, &set_settings, &mut connection, key.bytes(), len)
 				},
-				(true, Command::Del(key)) => handle_del(&cache, &stats, key),
+				(true, Command::Del) => handle_del(&cache, &stats, key.bytes()),
 
-				(true, Command::Has(key)) => handle_has(&cache, &stats, key),
-				(true, Command::Peek(key)) => handle_peek(&cache, &stats, key),
-				(true, Command::Ttl(key, ttl)) => handle_ttl(&cache, &stats, key, ttl),
-				(true, Command::Size(key)) => handle_size(&cache, &stats, key),
+				(true, Command::Has) => handle_has(&cache, &stats, key.bytes()),
+				(true, Command::Peek) => handle_peek(&cache, &stats, key.bytes()),
+				(true, Command::Ttl(ttl)) => handle_ttl(&cache, &stats, key.bytes(), ttl),
+				(true, Command::Size) => handle_size(&cache, &stats, key.bytes()),
 
 				(true, Command::Wipe) => handle_wipe(&cache),
 
@@ -299,12 +305,15 @@ impl Server {
 
 				// The value and the TTL of a SET are still on the socket, and
 				// are read past so the connection stays in step.
-				(false, Command::Set(_, len)) => {
+				(false, Command::Set(len)) => {
 					set::handle_unauthorized_set(&mut connection, &stats, &set_settings, len)
 				},
 
 				_ => Err(ServerError::Unauthorized),
 			};
+
+			// Done with the request's key: a buffer a huge key made is given back.
+			key.trim();
 
 			// A SET whose value or TTL did not arrive, or could not be skipped,
 			// has lost its place in the stream: nothing more can be read from
@@ -410,12 +419,12 @@ fn handle_auth(connection: &mut Connection, token: &Buffer) -> SheetResult {
 	Ok(sheet)
 }
 
-fn handle_get(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer) -> SheetResult {
+fn handle_get(cache: &Arc<Cache>, stats: &SelfStats, key: &[u8]) -> SheetResult {
 	// Timed inline rather than through `timed` so the outcome can pick the
 	// slot: hits and misses are different operations and must not share an
 	// average.
 	let started = Instant::now();
-	let outcome = cache.get(&key);
+	let outcome = cache.get_borrowed(key);
 	let nanos = started.elapsed().as_nanos() as u64;
 
 	stats.record(
@@ -433,21 +442,21 @@ fn handle_get(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer) -> SheetResult
 		.map_err(ServerError::CacheError)
 }
 
-fn handle_del(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer) -> SheetResult {
-	timed(stats, CommandByte::DEL, || cache.del(&key))
+fn handle_del(cache: &Arc<Cache>, stats: &SelfStats, key: &[u8]) -> SheetResult {
+	timed(stats, CommandByte::DEL, || cache.del_borrowed(key))
 		.map(|_| SheetBuilder::new().write_bool(true).into_sheet())
 		.map_err(ServerError::CacheError)
 }
 
-fn handle_has(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer) -> SheetResult {
-	let has = timed(stats, CommandByte::HAS, || cache.has(&key));
+fn handle_has(cache: &Arc<Cache>, stats: &SelfStats, key: &[u8]) -> SheetResult {
+	let has = timed(stats, CommandByte::HAS, || cache.has_borrowed(key));
 	let sheet = SheetBuilder::new().write_bool(true).write_bool(has).into_sheet();
 
 	Ok(sheet)
 }
 
-fn handle_peek(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer) -> SheetResult {
-	timed(stats, CommandByte::PEEK, || cache.peek(&key))
+fn handle_peek(cache: &Arc<Cache>, stats: &SelfStats, key: &[u8]) -> SheetResult {
+	timed(stats, CommandByte::PEEK, || cache.peek_borrowed(key))
 		.map(|object| {
 			SheetBuilder::new()
 				.write_bool(true)
@@ -457,14 +466,14 @@ fn handle_peek(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer) -> SheetResul
 		.map_err(ServerError::CacheError)
 }
 
-fn handle_ttl(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer, ttl: Option<u32>) -> SheetResult {
-	timed(stats, CommandByte::TTL, || cache.ttl(&key, ttl))
+fn handle_ttl(cache: &Arc<Cache>, stats: &SelfStats, key: &[u8], ttl: Option<u32>) -> SheetResult {
+	timed(stats, CommandByte::TTL, || cache.ttl_borrowed(key, ttl))
 		.map(|_| SheetBuilder::new().write_bool(true).into_sheet())
 		.map_err(ServerError::CacheError)
 }
 
-fn handle_size(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer) -> SheetResult {
-	timed(stats, CommandByte::SIZE, || cache.size(&key))
+fn handle_size(cache: &Arc<Cache>, stats: &SelfStats, key: &[u8]) -> SheetResult {
+	timed(stats, CommandByte::SIZE, || cache.size_borrowed(key))
 		.map(|size| {
 			SheetBuilder::new()
 				.write_bool(true)

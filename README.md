@@ -164,6 +164,19 @@ PING answers `[!][len]pong`, as upstream's server does and as the stock client's
 `bench-client` does) leaves the buffer in the stream and loses frame sync at its
 next command.
 
+## Keys: read once, into the connection's buffer
+
+Every request's key is read off the socket into one buffer the connection keeps
+(`src/keybuf.rs`) and lent to the cache as `&[u8]` (`PaperCache::get_borrowed`,
+`del_borrowed`, `has_borrowed`, `peek_borrowed`, `ttl_borrowed`, `size_borrowed`,
+`reserve_set_borrowed`; `set_borrowed` on the flat build). It used to be a
+`Box<[u8]>` built for the request (`paper_utils::stream::read_buf`: allocated,
+zero-filled, read into, freed). In the steady state a request allocates nothing
+for its key and writes it once, off the socket; the buffer is zero-filled only
+when it has to grow past the longest key it has read. The cache hashes the bytes
+as it hashes the `Box<[u8]>` it is keyed by, so nothing stored by one spelling is
+missed by the other. AUTH and POLICY read their argument as before.
+
 ## SET: admitted before its value is read
 
 The wire's order is key, value, TTL. A server that calls `PaperCache::set` has
@@ -171,7 +184,8 @@ to read the whole value into a buffer of its own first, one no budget covers,
 and copy it again into the cache. The tiered build splits the set instead
 (`src/set.rs`, on the cache's `reserve_set` / `SetPermit` / `PendingSet`):
 
-1. read the key and the value's length, and nothing more;
+1. read the key and the value's length, and nothing more (the key goes into the
+   connection's key buffer, see "Keys" below);
 2. `register_setter()` for this SET, counting it into the byte gate's near band
    while it is in flight (a SET, not a connection: an idle connection counts
    for nothing) -- but only when that can widen anything. The band is widened by
@@ -184,14 +198,18 @@ and copy it again into the cache. The tiered build splits the set instead
    registers SETs only when the gate runs and `value_hint` is above 0
    (`SetterCount` in `src/set.rs`); the report's `value hint` line says which,
    and `live setters` stays 0 otherwise;
-3. `reserve_set(key, len, None, now + set_timeout)`: the size checks, the
+3. `reserve_set_borrowed(key, len, None, now + set_timeout)`, the key as the bytes
+   in that buffer: the size checks, the
    metadata cap, the tier and the byte gate, which **waits** for demotions to
    free room when the fast tier is full, at most until the deadline. The value
    is still in the kernel's socket buffer meanwhile, so TCP flow control slows
    that one client and no cache DRAM is held for it;
 4. `fill()` allocates the value in the tier the permit chose, uninitialized, and
    the value is read off the socket straight into it (`read_exact_from`, with
-   `SO_RCVTIMEO` armed), so a slow-tier value is never zero-filled first;
+   `SO_RCVTIMEO` armed), so a slow-tier value is never zero-filled first. Under
+   `thin_header` the key's bytes are copied from the key buffer into that same
+   item, and no key is allocated for the SET; under the default layout the
+   header stores a key, and `fill` builds the one;
 5. the TTL is read, `set_ttl`, `commit()`.
 
 `set_timeout` (config key, `--set-timeout`; milliseconds, 1 to 86400000;
@@ -256,10 +274,12 @@ parses. A SET that is *abandoned* gets no reply: its connection is closed.
   8 MiB, or set `PAPER_GATE_METADATA_MODEL=per_object`.
 * The Dockerfile is upstream's and is not maintained for the tiered build, which
   needs a nightly toolchain and the cache's Git dependency.
-* Lengths on the wire are trusted before the bytes arrive: a key, an AUTH token
-  or a policy string is read into a `vec![0; declared_len]`, as upstream does
-  (paper-utils), so a client can declare a multi-GiB one. The flat build reads a
-  value the same way.
+* Lengths on the wire are trusted before the bytes arrive: a key is read into the
+  connection's key buffer, which grows (zero-filled, once) to the declared
+  length, an AUTH token or a policy string is read into a `vec![0; declared_len]`,
+  as upstream does (paper-utils), so a client can declare a multi-GiB one. A key
+  buffer that grew past 64 KiB is given back after the request that needed it.
+  The flat build reads a value the same way.
 * A merged-store build, tiered or flat, commits its slab in 4096-slot chunks per
   shard (160 KiB at 40 B a slot, 32 shards: `merged_store.rs` in the cache), so
   its measured DRAM sits about 5 MiB above the model once every shard holds an
