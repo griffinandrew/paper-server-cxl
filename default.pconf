@@ -76,4 +76,9 @@ set_timeout=5000
 
 # Authorization token (optional)
 # If set, clients must supply this token to send commands
+#
+# Write `auth_token=$VAR` to read the token from the environment variable VAR
+# rather than keep it here. On the command line `--auth TOKEN` shows the token
+# in `ps`; `--auth '$VAR'` (single-quoted) does not. A $VAR that is not set in
+# the server's environment is not an error: the text `$VAR` becomes the token.
 # auth_token=<your_auth_token>

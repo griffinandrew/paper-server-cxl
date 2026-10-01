@@ -1,6 +1,8 @@
 # paper-server (tiered fork)
 
-PaperCache is an in-memory cache which supports dynamic eviction policy switching at runtime.
+PaperCache is an in-memory cache with a choice of eviction policies. In this fork
+the policy is fixed when the server starts (`policy=`, `--policy`): there is no
+switching at runtime, and the POLICY command is refused (see "Known limits").
 
 Visit [PaperCache](https://papercache.io) for more details.
 
@@ -28,6 +30,13 @@ cargo build --release --no-default-features --features all_dram
 On the benchmark box rustup knows that nightly as `nightly`, not by its dated
 name, so build there with `cargo +nightly ...`: a bare `cargo` would try to
 install `nightly-2026-09-14` as a second toolchain.
+
+Release builds abort on a panic (`panic = "abort"` in `[profile.release]`).
+Upstream's connection pool (`kwik::thread_pool`) does not catch a panic in a
+connection's thread: the worker dies and is never replaced, the connection's
+slot is never released, and its socket stays open through the clone held in that
+slot, so the client hangs and the slot is lost. A server under benchmark should
+fail fast and visibly instead. Debug builds still unwind.
 
 | Feature | Effect |
 |---|---|
@@ -69,13 +78,21 @@ wins over the file, which wins over `default.pconf`.
 | `--fast-tier-size <BYTES>` | `fast_tier_size` | tiered build only; at most `max_size` |
 | `--policy <POLICY>` | `policy` | e.g. `lru-compact-hybrid`, `s3-fifo-faithful-compact-hybrid-0.1` |
 | `--set-timeout <MS>` | `set_timeout` | how long a SET may wait for the cache to take it and for each read of its value (see below); tiered build only |
-| `--auth <TOKEN>` | `auth_token` | clients must send it with AUTH before any other command |
+| `--auth <TOKEN>` | `auth_token` | clients must send it with AUTH before any other command; give it as `'$VAR'` (see below), not as the token |
 | `--stats-interval <S>` | | print the self-stats report to stderr every S seconds |
 | `--config <FILE>`, `--log-config <FILE>` | | as upstream |
 
 `--bind`, `--max-size`, `--fast-tier-size` and `--policy` are the flags the
 benchmark's `run_mem.py` launches a server with, so pointing it at this binary
 needs a different `--server` path and nothing else on the server side.
+
+`--auth TOKEN` puts the token in the process's command line, where any user of
+the machine can read it with `ps`. On a shared box pass it as `--auth '$VAR'`,
+single-quoted so the shell leaves it alone: the server then reads the token from
+the environment variable `VAR`, and `ps` shows `$VAR`. A config file takes the
+same form, `auth_token=$VAR` (`Config::set`, `try_parse_env` in `src/config.rs`).
+A `$VAR` that is not set in the server's environment is not an error: the text
+`$VAR` itself becomes the token.
 
 ## Self-reported latency
 
@@ -93,7 +110,7 @@ only ever grows by appending a section:
 | `MEASURED vs MODELLED` | the allocator's per-pool totals beside the model; only with `measured_accounting` |
 | `PHYSICAL FAST TIER` | the bytes physically in the fast tier's value pool and its peak, the effective budget, hits by tier, the cache's measured DRAM metadata |
 | `MIGRATIONS AND CAPACITY PASSES` | the migration queue's depth, backlog and dispositions (applied, gone, declined, superseded), the correctives the reconcile queued and applied, and the capacity passes the eviction watermark armed: this cache's own counts since it was built |
-| `SET ADMISSION` | SETs committed, SETs refused by code (8, 9, other), body timeouts and aborts, bytes skipped, the live setters and the cache's value hint (see "SET" below), and the byte gate's waits, stalls and levels (settle, near, close). Refused SETs have a row of their own in the latency table too. |
+| `SET ADMISSION` | SETs committed, SETs refused by code (8, 9, other), body timeouts and aborts, bytes skipped, the live setters and the cache's value hint, with whether SETs in flight are counted and why not (see "SET" below), and the byte gate's waits, stalls and levels (settle, near, close). Refused SETs have a row of their own in the latency table too. |
 
 `run_mem.py` reads the report with line-anchored regular expressions
 (`^fast\s+\d+ objects`, `^slow\s+`, `^dram\s+`, `^promotions`, ...), so no line
@@ -121,12 +138,14 @@ and copy it again into the cache. The tiered build splits the set instead
    while it is in flight (a SET, not a connection: an idle connection counts
    for nothing) -- but only when that can widen anything. The band is widened by
    `(concurrency_hint + live setters) x value_hint`, so with the cache's
-   `value_hint` at its default of 0 a setter widens nothing, and each
-   registration and release would wake the cache's policy worker for no effect.
-   The server reads the cache's `value_hint` once at start-up
-   (`PaperCache::gate_config`, so `PAPER_GATE_VALUE_HINT_BYTES` applies) and
-   registers SETs only when it is above 0; the report's `value hint` line says
-   which, and `live setters` stays 0 without one;
+   `value_hint` at its default of 0 a setter widens nothing, and with the byte
+   gate off (`PAPER_GATE_MODE=off`) the cache publishes no band to widen at all.
+   Each registration and release would wake the cache's policy worker for no
+   effect. The server reads the cache's gate configuration once at start-up
+   (`PaperCache::gate_config`, so the `PAPER_GATE_*` variables apply) and
+   registers SETs only when the gate runs and `value_hint` is above 0
+   (`SetterCount` in `src/set.rs`); the report's `value hint` line says which,
+   and `live setters` stays 0 otherwise;
 3. `reserve_set(key, len, None, now + set_timeout)`: the size checks, the
    metadata cap, the tier and the byte gate, which **waits** for demotions to
    free room when the fast tier is full, at most until the deadline. The value
@@ -203,6 +222,26 @@ parses. A SET that is *abandoned* gets no reply: its connection is closed.
   or a policy string is read into a `vec![0; declared_len]`, as upstream does
   (paper-utils), so a client can declare a multi-GiB one. The flat build reads a
   value the same way.
+* STATUS is upstream's frame, carrying this cache's own policy names
+  (`lru-compact-hybrid`, `2q-compact-hybrid-0.2`, ...: `handle_status` in
+  `src/server.rs`). The stock `paper-client` 1.11.0 parses each one as a name of
+  its own (`lru`, `2q-<in>-<out>`, `s3-fifo-<ratio>`, ...: `PaperPolicy::from_str`
+  in its `src/policy.rs`) and rejects any other, which it takes for a broken
+  connection: `status()` reconnects and asks again, up to three times
+  (`RECONNECT_MAX_ATTEMPTS`), and then fails with `Disconnected`
+  (`process_status` in its `src/client.rs`). A client that needs STATUS has to
+  parse those names itself; the self-stats report (command 200) is the
+  tier-aware status.
+* POLICY is not supported. It is answered with cache error 6 (`InvalidPolicy`),
+  whatever policy it names (`handle_policy` in `src/server.rs`): a tiered
+  stack's fast/slow split cannot be carried over to another design, so the
+  design is chosen once, at start-up, and changing it means restarting the
+  server. `policies[]` in a config file is ignored, with a warning.
+* A zero-length value is stored. The cache raises `ZeroValueSize` (cache error 2)
+  only for an object whose accounted size is 0, and no object's is: its key and
+  its bookkeeping count. So a SET of 0 bytes succeeds and reads back as 0 bytes,
+  on every build (`scripts/probe_server.py basic` sets and gets one), and this
+  server never sends error 2.
 
 ## Testing
 
@@ -213,7 +252,13 @@ value read into the cache byte-exact, a value too big for the cache skipped, a
 client that stalls mid-value closed and its fast bytes refunded, a SET refused
 with cache error 8 and another with 9 and the connection still in step, an
 unauthorized SET consumed, and SETs in flight counted as setters only when the
-cache's value hint is above 0. `SET_PATH_TEST_LOGS=<dir>` keeps each server's log.
+cache's byte gate runs and its value hint is above 0. `SET_PATH_TEST_LOGS=<dir>`
+keeps each server's log.
+
+The wire tests start the binary Cargo built for the run: with `--release` that
+is the release binary, `panic = "abort"` included, and without it a dev-profile
+binary, which unwinds. The unit tests are built to unwind either way (Cargo
+ignores the setting for tests).
 
 `scripts/probe_server.py` is the same kind of probe for a server you started
 yourself, with the wire's every command, binary keys up to 250 bytes, values over

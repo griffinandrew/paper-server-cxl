@@ -154,11 +154,12 @@ impl Server {
 		Ok(())
 	}
 
-	/// Whether a SET in flight is registered with the cache as a setter: only
-	/// when the cache's near band is widened by setters (`set::counts_setters`).
+	/// Whether a SET in flight is registered with the cache as a setter, and if
+	/// not, why not: it is only when a setter widens the near band (see
+	/// `set::SetterCount`).
 	#[cfg(feature = "tiered")]
-	pub fn counts_setters(&self) -> bool {
-		self.set_settings.count_setters
+	pub fn setters(&self) -> set::SetterCount {
+		self.set_settings.setters
 	}
 
 	/// Prints the self-stats report to stderr every `every`, so a long run

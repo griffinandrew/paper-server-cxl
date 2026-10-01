@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Kia Shakiba
+ * Copyright (c) Griffin Andrew
  *
  * This source code is licensed under the GNU AGPLv3 license found in the
  * LICENSE file in the root directory of this source tree.
@@ -16,7 +16,7 @@
 //! ```text
 //!   read the key and the value's length        (the Set command: nothing else)
 //!   register_setter()                          this SET is in flight, if that can
-//!        |                                     widen anything (`counts_setters`)
+//!        |                                     widen anything (`SetterCount`)
 //!   reserve_set(key, len, None, deadline)      admission: the size checks, the
 //!        |                                     metadata cap, the tier and the byte
 //!        |                                     gate, which WAITS for demotions to
@@ -37,16 +37,30 @@
 //!
 //! # Counting setters
 //!
-//! `register_setter()` counts a SET in flight into the byte gate's near band, which
-//! the cache widens to `(concurrency_hint + live setters) x value_hint` (`bands`,
-//! the cache's gate.rs). With `value_hint` 0, the default, that is a product with
-//! 0: a setter widens nothing, whatever the count. Each registration and each
-//! release unparks the cache's policy worker all the same (`kick_policy_worker`,
-//! the cache's status.rs), two wake-ups per SET for nothing. So a SET is
-//! registered only when the cache runs with a `value_hint` above 0, which
-//! `counts_setters` reads once, at start-up, from the configuration the cache
-//! actually runs (`PaperCache::gate_config`, `PAPER_GATE_VALUE_HINT_BYTES`
-//! included): there is no second setting here to keep in step with it.
+//! `register_setter()` counts a SET in flight into the byte gate's near band,
+//! which the cache widens to `(concurrency_hint + live setters) x value_hint`
+//! (`bands_for`, the cache's gate.rs). Two things leave a setter nothing to
+//! widen:
+//!
+//! * a `value_hint` of 0, the default: a product with 0, whatever the count;
+//! * a byte gate that is off (`PAPER_GATE_MODE=off`): the policy worker
+//!   publishes bands only while the gate is enabled (the cache's
+//!   worker/policy/mod.rs), so there is no near band at all.
+//!
+//! Each registration and each release unparks the cache's policy worker all the
+//! same (`kick_policy_worker`, the cache's status.rs): two wake-ups per SET for
+//! nothing. So a SET is registered only when the cache runs the gate in `Block`
+//! mode with a `value_hint` above 0 (`SetterCount`), which is read once, at
+//! start-up, from the configuration the cache actually runs
+//! (`PaperCache::gate_config`, `PAPER_GATE_MODE` and
+//! `PAPER_GATE_VALUE_HINT_BYTES` included): there is no second setting here to
+//! keep in step with it.
+//!
+//! The other ways the gate can be disabled are not checked: the cache's
+//! `Ungated` state (the faithful fast-admission designs) and `Bands` (a drain
+//! target the near band cannot clear) are decided by the policy worker, and
+//! are not known when the server starts: with a value hint, such a cache has
+//! its SETs registered for nothing.
 //!
 //! # What a failure does
 //!
@@ -75,6 +89,8 @@ use std::{
 };
 
 use log::warn;
+#[cfg(feature = "tiered")]
+use paper_cache::{GateConfig, GateMode};
 use paper_utils::stream::Buffer;
 
 use crate::{
@@ -93,10 +109,10 @@ pub struct SetSettings {
 	/// its value and its TTL (`set_timeout`).
 	pub timeout: Duration,
 
-	/// Whether a SET in flight is registered with the cache as a setter. See
-	/// `counts_setters`.
+	/// Whether a SET in flight is registered with the cache as a setter, and if
+	/// not, why not. See `SetterCount`.
 	#[cfg(feature = "tiered")]
-	pub count_setters: bool,
+	pub setters: SetterCount,
 }
 
 impl SetSettings {
@@ -104,7 +120,7 @@ impl SetSettings {
 	pub fn new(config: &Config, cache: &Cache) -> SetSettings {
 		SetSettings {
 			timeout: config.set_timeout(),
-			count_setters: counts_setters(cache),
+			setters: SetterCount::of(&cache.gate_config()),
 		}
 	}
 
@@ -116,14 +132,46 @@ impl SetSettings {
 	}
 }
 
-/// Whether a SET in flight is worth registering as a setter: only if the cache's
-/// near band is widened by setters at all, which it is when the cache runs with
-/// a `value_hint` above 0. The configuration is the cache's own, as built (the
-/// environment's `PAPER_GATE_VALUE_HINT_BYTES` applied), and does not change
-/// while the server runs: nothing here calls `set_gate_config`.
+/// Whether a SET in flight is registered as a setter: only if that can widen
+/// the near band, which takes the byte gate running (`PAPER_GATE_MODE` not
+/// `off`) and a value hint above 0. If not, why not.
+///
+/// A pure function of the cache's `GateConfig` -- the one it runs, as built,
+/// with `PAPER_GATE_MODE` and `PAPER_GATE_VALUE_HINT_BYTES` applied. That does
+/// not change while the server runs: nothing here calls `set_gate_config`.
 #[cfg(feature = "tiered")]
-pub fn counts_setters(cache: &Cache) -> bool {
-	cache.gate_config().value_hint > 0
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SetterCount {
+	/// The gate runs and the value hint is above 0: each SET in flight is
+	/// registered, and widens the near band by the hint.
+	Counted,
+
+	/// The byte gate is off, so the policy worker publishes no near band for a
+	/// setter to widen, whatever the value hint.
+	GateOff,
+
+	/// The value hint is 0: a setter widens the near band by 0 B.
+	NoValueHint,
+}
+
+#[cfg(feature = "tiered")]
+impl SetterCount {
+	pub fn of(gate: &GateConfig) -> SetterCount {
+		// The gate first: with it off there is no band, hint or no hint.
+		if gate.mode != GateMode::Block {
+			return SetterCount::GateOff;
+		}
+
+		match gate.value_hint {
+			0 => SetterCount::NoValueHint,
+			_ => SetterCount::Counted,
+		}
+	}
+
+	/// Whether a SET in flight is registered with the cache.
+	pub fn counted(self) -> bool {
+		self == SetterCount::Counted
+	}
 }
 
 /// `Instant::now() + timeout`, or a time far enough ahead not to matter if the
@@ -199,10 +247,10 @@ pub fn handle_set(
 	// One live setter per SET in flight, not per connection: the byte gate widens
 	// the band it holds a fast tier to by the setters that could be mid-flight
 	// when it fills, and an idle connection is none of them. Only when that widens
-	// anything (see `counts_setters`): the registration and the release each wake
+	// anything (see `SetterCount`): the registration and the release each wake
 	// the policy worker. The guard lives to the end of this function, which is the
 	// end of the SET.
-	let _setter = settings.count_setters.then(|| cache.register_setter());
+	let _setter = settings.setters.counted().then(|| cache.register_setter());
 
 	let started = Instant::now();
 	let deadline = deadline_after(started, timeout);
@@ -321,4 +369,41 @@ pub fn handle_set(
 	timed(stats, CommandByte::SET, || cache.set(key, &value, ttl))
 		.map(|_| SheetBuilder::new().write_bool(true).into_sheet())
 		.map_err(ServerError::CacheError)
+}
+
+#[cfg(all(test, feature = "tiered"))]
+mod tests {
+	use super::*;
+
+	fn gate(mode: GateMode, value_hint: u64) -> GateConfig {
+		let mut gate = GateConfig::default();
+
+		gate.mode = mode;
+		gate.value_hint = value_hint;
+
+		gate
+	}
+
+	#[test]
+	fn a_set_is_counted_only_when_the_gate_runs_and_the_value_hint_is_above_0() {
+		let counted = SetterCount::of(&gate(GateMode::Block, 4096));
+
+		assert_eq!(counted, SetterCount::Counted);
+		assert!(counted.counted());
+
+		// A hint of 0 widens nothing, and neither does a gate that is off.
+		assert_eq!(SetterCount::of(&gate(GateMode::Block, 0)), SetterCount::NoValueHint);
+		assert_eq!(SetterCount::of(&gate(GateMode::Off, 4096)), SetterCount::GateOff);
+
+		// With both, the gate is the reason: with it off there is no band at all.
+		assert_eq!(SetterCount::of(&gate(GateMode::Off, 0)), SetterCount::GateOff);
+
+		for not_counted in [
+			SetterCount::of(&gate(GateMode::Block, 0)),
+			SetterCount::of(&gate(GateMode::Off, 4096)),
+			SetterCount::of(&gate(GateMode::Off, 0)),
+		] {
+			assert!(!not_counted.counted(), "{not_counted:?}");
+		}
+	}
 }

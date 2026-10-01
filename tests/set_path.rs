@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Kia Shakiba
+ * Copyright (c) Griffin Andrew
  *
  * This source code is licensed under the GNU AGPLv3 license found in the
  * LICENSE file in the root directory of this source tree.
@@ -645,4 +645,67 @@ fn a_set_in_flight_is_counted_as_a_setter_only_when_the_value_hint_could_widen_t
 
 		drop(idle);
 	}
+}
+
+#[test]
+fn a_set_in_flight_is_not_counted_as_a_setter_while_the_byte_gate_is_off() {
+	// A value hint is set, so with the gate on each SET in flight WOULD be counted
+	// (the test above). The gate is off: the cache publishes no near band for a
+	// setter to widen, and registering each SET would only wake its policy worker
+	// twice for nothing.
+	let server = Server::start(
+		&["--max-size", "64MiB", "--fast-tier-size", "32MiB", "--set-timeout", "2000"],
+		&[("PAPER_GATE_MODE", "off"), ("PAPER_GATE_VALUE_HINT_BYTES", "1048576")],
+	);
+	let mut control = server.client();
+	let report = control.report();
+	let before = report.figure("phys fast");
+
+	assert_eq!(report.figure("value hint"), 1 << 20);
+	assert!(
+		report.0.contains("the byte gate is off, so SETs in flight are not counted"),
+		"{}",
+		report.0,
+	);
+	assert!(report.0.lines().any(|line| line.starts_with("gate           Off")), "{}", report.0);
+
+	// Three SETs of 1 MiB, each stalled before its last byte: with no gate to
+	// hold them they are admitted at once, and pin their bytes while they wait.
+	let held = value(1 << 20, 6);
+	let mut stalled = Vec::new();
+
+	for i in 0..3 {
+		let mut client = server.client();
+
+		client.send(&partial_set(format!("held-{i}").as_bytes(), &held, held.len() - 1));
+		stalled.push(client);
+	}
+
+	assert!(
+		eventually(Duration::from_secs(3), || {
+			control.report().figure("phys fast") >= before + 3 * held.len() as u64
+		}),
+		"the stalled SETs did not pin the tier",
+	);
+
+	// In flight, and not counted.
+	assert_eq!(control.report().figure("live setters"), 0, "the gate is off: nothing for a setter to widen");
+
+	for client in &mut stalled {
+		assert!(client.closed_within(Duration::from_secs(6)));
+	}
+
+	assert!(
+		eventually(Duration::from_secs(3), || control.report().figure("phys fast") == before),
+		"the fast-tier byte count did not return to {before}",
+	);
+
+	let report = control.report();
+
+	assert_eq!(report.figure("body timeouts"), 3);
+	assert_eq!(report.figure("live setters"), 0);
+
+	// The server serves on, with the gate off as before.
+	control.set(b"after", b"fine").unwrap();
+	assert_eq!(control.get(b"after").unwrap(), b"fine");
 }

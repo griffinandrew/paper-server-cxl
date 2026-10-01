@@ -29,6 +29,9 @@ for it; the tiered build only, except `skip`:
                   --fast-tier-size 16MiB --set-timeout 1500
               (run it also with PAPER_GATE_VALUE_HINT_BYTES=1048576: the probe reads the server's
               own report of the hint and expects SETs in flight to be counted as setters only then)
+    gate-off  PAPER_GATE_MODE=off PAPER_GATE_VALUE_HINT_BYTES=1048576 paper-server \
+                  --max-size 256MiB --fast-tier-size 16MiB --set-timeout 1500
+              (a value hint, but no byte gate: SETs in flight are not counted as setters)
     deadline  PAPER_GATE_STALL_WINDOW_MS=60000 paper-server --max-size 256MiB \
                   --fast-tier-size 16MiB --set-timeout 600
     metadata  PAPER_GATE_METADATA_FLOOR_BYTES=1048576 paper-server \
@@ -481,6 +484,9 @@ def basic(args):
 #             Live setters: 4 while four SETs are in flight when the server's value hint is above 0 (PAPER_GATE_VALUE_HINT_BYTES,
 #             which the report shows), and 0 when it is 0, a setter then widening no band; with a hint the near level drops
 #             while they are in flight, without one it never moves.
+#   gate-off  PAPER_GATE_MODE=off with a value hint of 1 MiB: four SETs are in flight (admitted at once, each pinning its
+#             bytes) and 0 setters are live, because with the gate off there is no near band for a setter to widen; the
+#             report says so, they are timed out and closed, and the server serves on.
 #   deadline  the gate's stall window is a minute and the set timeout 600 ms: clients that dribble a byte inside
 #             every receive timeout keep the tier pinned past it, a SET is refused with cache error 8 when the set
 #             timeout runs out (not the watchdog), and the dribblers are timed out once they go quiet.
@@ -647,6 +653,61 @@ def stall(args):
     return c.summary()
 
 
+def gate_off(args):
+    c = Checks()
+    port = args.port
+    ctl = Client(port, connect_retries=50)
+    base = fetch(ctl)
+    p0, hint = base["phys_fast"], base["value_hint"]
+    print(f"== gate-off scenario: phys fast {p0} B, setters {base['setters']}, value hint {hint} B")
+    c.check("the value hint is above 0 (the server was started with one)", bool(hint), f"hint {hint}")
+    c.check("the byte gate is off", re.search(r"^gate\s+Off", base["text"], re.M) is not None)
+    c.check(
+        "the report says the gate is why SETs in flight are not counted",
+        re.search(r"^value hint\s+\d+ B: the byte gate is off, so SETs in flight are not counted", base["text"], re.M) is not None,
+    )
+    c.check("no setter is live at rest", base["setters"] == 0)
+
+    # Four SETs of 1 MiB, stalled at four points of their frames. With no gate to hold them each is admitted at once,
+    # its value allocated and charged to the fast tier, and then waits for the rest of its bytes: in flight.
+    hold = 1 << 20
+    cut = {
+        "header only": lambda n: 0,
+        "half the value": lambda n: n // 2,
+        "one byte short of the value": lambda n: n - 1,
+        "the whole value, no TTL": lambda n: n,
+    }
+    t_start = time.time()
+    stallers = [Staller(port, b"off-%d" % i, hold, fn, name) for i, (name, fn) in enumerate(cut.items())]
+    c.check(
+        f"four SETs in flight pin {4 * hold} B of the fast tier",
+        eventually(lambda: fetch(ctl)["phys_fast"] >= p0 + 4 * hold, 5.0),
+        f"phys {fetch(ctl)['phys_fast']}",
+    )
+    mid = fetch(ctl)
+    c.check(
+        f"0 live setters while four SETs are in flight (gate off, value hint {hint} B)",
+        mid["setters"] == 0,
+        f"setters {mid['setters']}",
+    )
+
+    # They are timed out and closed, whichever point they stalled at, and the tier is whole again.
+    for st in stallers:
+        timeout_left = max(0.1, 1.5 + 2.5 - (time.time() - t_start))
+        c.check(f"the server closes the client that stalled at: {st.label}", st.closed_within(timeout_left))
+    c.check(
+        "the fast-tier byte count returns to its prior value",
+        eventually(lambda: fetch(ctl)["phys_fast"] == p0, 3.0),
+        f"phys {fetch(ctl)['phys_fast']} vs {p0}",
+    )
+    done = fetch(ctl)
+    c.check("four body timeouts are counted", done["timeouts"] == 4, f"{done['timeouts']} (aborts {done['aborts']})")
+    c.check("still no setter live", done["setters"] == 0)
+    probe = Client(port)
+    c.check("the server serves on", probe.set(b"probe", b"fine") and probe.get(b"probe") == b"fine")
+    return c.summary()
+
+
 class Dribbler(Staller):
     """A Staller that then keeps its reads alive: a byte of the value every `every` seconds until stopped.
 
@@ -786,6 +847,8 @@ def errors(args):
     scenario = args.scenario
     if scenario == "stall":
         return stall(args)
+    if scenario == "gate-off":
+        return gate_off(args)
     if scenario == "deadline":
         return deadline(args)
     if scenario == "metadata":
@@ -803,7 +866,7 @@ def main():
     ap.add_argument("--cache-version", default="1.11.12")
     ap.add_argument("--policy", default="lru-compact-hybrid")
     ap.add_argument("--pid", type=int, default=None)
-    ap.add_argument("--scenario", choices=["stall", "deadline", "metadata", "skip"], default="stall", help="errors mode")
+    ap.add_argument("--scenario", choices=["stall", "gate-off", "deadline", "metadata", "skip"], default="stall", help="errors mode")
     ap.add_argument("mode", choices=["basic", "errors"])
     args = ap.parse_args()
     if args.mode == "basic":

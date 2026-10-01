@@ -71,3 +71,11 @@ thin_header = ["paper-cache/thin_header"]
 # Per-pool allocator counters, reported beside the cache's own accounting in the
 # self-stats report. The benchmark's servers were built with it.
 measured_accounting = ["paper-cache/measured_accounting"]
+
+[profile.release]
+# A panic ends the process. Upstream's connection pool (kwik's ThreadPool) does
+# not catch one in a connection's thread: the worker dies and is never replaced,
+# the connection's slot is never released, and its socket stays open through the
+# clone held in that slot, so the client hangs. A server under benchmark should
+# fail fast and visibly, not limp on with a client stuck.
+panic = "abort"

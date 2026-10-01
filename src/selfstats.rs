@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Kia Shakiba
+ * Copyright (c) Griffin Andrew
  *
  * This source code is licensed under the GNU AGPLv3 license found in the
  * LICENSE file in the root directory of this source tree.
@@ -56,6 +56,8 @@ use paper_cache::CacheError;
 use paper_utils::command::CommandByte;
 
 use crate::server::Cache;
+#[cfg(feature = "tiered")]
+use crate::set::SetterCount;
 
 /// Command bytes run 0..=13, so one slot each covers every command.
 pub const SLOTS: usize = 16;
@@ -460,7 +462,7 @@ pub fn render(stats: &SelfStats, cache: &Cache) -> String {
 		stats,
 		&cache.hybrid_stats(),
 		cache.live_setters(),
-		cache.gate_config().value_hint,
+		&cache.gate_config(),
 	);
 
 	out
@@ -548,20 +550,21 @@ fn render_migrations(out: &mut String, tier: &paper_cache::HybridStats) {
 ///
 /// `live setters` is the number of SETs in flight right now (a setter is
 /// registered per SET, not per connection, so an idle connection counts for
-/// nothing), and only when `value hint` is above 0: with 0 a setter would widen
-/// no band, so the server does not register SETs and the count stays 0.
-/// `refused` is what the server answered with codes 8 and 9 and the
-/// size checks; `gate stalls` is the gate's own count of times its watchdog
-/// found nothing freed, which is not the same quantity (a SET can also be
-/// refused when its deadline passes while the gate still sees progress). No
-/// line starts with a word `run_mem.py` anchors on.
+/// nothing), and only when the byte gate runs and `value hint` is above 0:
+/// with a hint of 0, or the gate off, a setter would widen no band, so the
+/// server does not register SETs and the count stays 0 (`SetterCount`; the
+/// `value hint` line says which). `refused` is what the server answered with
+/// codes 8 and 9 and the size checks; `gate stalls` is the gate's own count of
+/// times its watchdog found nothing freed, which is not the same quantity (a
+/// SET can also be refused when its deadline passes while the gate still sees
+/// progress). No line starts with a word `run_mem.py` anchors on.
 #[cfg(feature = "tiered")]
 fn render_set_admission(
 	out: &mut String,
 	stats: &SelfStats,
 	tier: &paper_cache::HybridStats,
 	live_setters: u32,
-	value_hint: u64,
+	gate: &paper_cache::GateConfig,
 ) {
 	let load = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
 
@@ -587,13 +590,19 @@ fn render_set_admission(
 	let _ = writeln!(out, "bytes skipped  {} B", load(&stats.bytes_skipped));
 	let _ = writeln!(out, "live setters   {live_setters}");
 
-	match value_hint {
-		0 => {
-			let _ = writeln!(out, "value hint     0 B: a setter would widen no band, so SETs in flight are not counted");
+	let hint = gate.value_hint;
+
+	match SetterCount::of(gate) {
+		SetterCount::Counted => {
+			let _ = writeln!(out, "value hint     {hint} B: each SET in flight is counted into the near band");
 		},
 
-		hint => {
-			let _ = writeln!(out, "value hint     {hint} B: each SET in flight is counted into the near band");
+		SetterCount::NoValueHint => {
+			let _ = writeln!(out, "value hint     {hint} B: a setter would widen no band, so SETs in flight are not counted");
+		},
+
+		SetterCount::GateOff => {
+			let _ = writeln!(out, "value hint     {hint} B: the byte gate is off, so SETs in flight are not counted");
 		},
 	}
 	let _ = writeln!(
@@ -623,9 +632,19 @@ fn render_set_admission(
 
 #[cfg(all(test, feature = "tiered"))]
 mod tests {
-	use paper_cache::{CacheTierSize, GateConfig, MetadataModel, PaperPolicy};
+	use paper_cache::{CacheTierSize, GateConfig, GateMode, MetadataModel, PaperPolicy};
 
 	use super::*;
+
+	/// A gate configuration with this mode and value hint, the rest default.
+	fn gate(mode: GateMode, value_hint: u64) -> GateConfig {
+		let mut gate = GateConfig::default();
+
+		gate.mode = mode;
+		gate.value_hint = value_hint;
+
+		gate
+	}
 
 	/// The fourteen patterns run_mem.py reads the self-stats with, reduced to
 	/// what a line must START with to match one: thirteen are a keyword and
@@ -791,7 +810,7 @@ mod tests {
 		};
 
 		let mut out = String::new();
-		render_set_admission(&mut out, &stats, &tier, 3, 65_536);
+		render_set_admission(&mut out, &stats, &tier, 3, &gate(GateMode::Block, 65_536));
 
 		assert_eq!(
 			out,
@@ -816,20 +835,44 @@ mod tests {
 	}
 
 	#[test]
-	fn the_value_hint_line_says_whether_sets_in_flight_are_counted() {
-		let line = |hint: u64| {
+	fn the_value_hint_line_says_whether_sets_in_flight_are_counted_and_why_not() {
+		let line = |mode: GateMode, hint: u64| {
 			let mut out = String::new();
 
-			render_set_admission(&mut out, &SelfStats::new(), &paper_cache::HybridStats::default(), 0, hint);
+			render_set_admission(
+				&mut out,
+				&SelfStats::new(),
+				&paper_cache::HybridStats::default(),
+				0,
+				&gate(mode, hint),
+			);
 
 			out.lines().find(|line| line.starts_with("value hint")).unwrap().to_owned()
 		};
 
-		assert_eq!(line(0), "value hint     0 B: a setter would widen no band, so SETs in flight are not counted");
-		assert_eq!(line(4096), "value hint     4096 B: each SET in flight is counted into the near band");
+		assert_eq!(
+			line(GateMode::Block, 0),
+			"value hint     0 B: a setter would widen no band, so SETs in flight are not counted",
+		);
+		assert_eq!(
+			line(GateMode::Block, 4096),
+			"value hint     4096 B: each SET in flight is counted into the near band",
+		);
 
-		// Neither starts with a word run_mem.py anchors on.
-		assert!(!read_by_run_mem(&line(0)) && !read_by_run_mem(&line(4096)));
+		// A gate that is off is the reason, with a hint or without one.
+		assert_eq!(
+			line(GateMode::Off, 4096),
+			"value hint     4096 B: the byte gate is off, so SETs in flight are not counted",
+		);
+		assert_eq!(
+			line(GateMode::Off, 0),
+			"value hint     0 B: the byte gate is off, so SETs in flight are not counted",
+		);
+
+		// None starts with a word run_mem.py anchors on.
+		for (mode, hint) in [(GateMode::Block, 0), (GateMode::Block, 4096), (GateMode::Off, 4096)] {
+			assert!(!read_by_run_mem(&line(mode, hint)));
+		}
 	}
 
 	/// The section is wired to the cache: appended after every other section,

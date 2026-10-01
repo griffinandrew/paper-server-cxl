@@ -24,6 +24,8 @@ use clap::Parser;
 use dotenv::dotenv;
 use log::{error, info, warn};
 
+#[cfg(feature = "tiered")]
+use crate::set::SetterCount;
 use crate::{
 	config::Config,
 	server::{Server, new_cache},
@@ -73,7 +75,9 @@ struct Args {
 	#[arg(long, value_name = "POLICY")]
 	policy: Option<String>,
 
-	/// Require this token via the AUTH command, overriding `auth_token`
+	/// Require this token via the AUTH command, overriding `auth_token`. A token
+	/// given here shows in `ps`: pass '$VAR' (in single quotes) instead to read
+	/// it from the environment variable VAR
 	#[arg(long, value_name = "TOKEN")]
 	auth: Option<String>,
 
@@ -143,10 +147,18 @@ fn main() {
 	);
 
 	#[cfg(feature = "tiered")]
-	if server.counts_setters() {
-		info!("SETs in flight are counted into the byte gate's near band (value hint above 0)");
-	} else {
-		info!("SETs in flight are not counted: with a value hint of 0 a setter widens nothing");
+	match server.setters() {
+		SetterCount::Counted => {
+			info!("SETs in flight are counted into the byte gate's near band (value hint above 0)");
+		},
+
+		SetterCount::NoValueHint => {
+			info!("SETs in flight are not counted: with a value hint of 0 a setter widens nothing");
+		},
+
+		SetterCount::GateOff => {
+			info!("SETs in flight are not counted: the byte gate is off, so there is no near band to widen");
+		},
 	}
 
 	#[cfg(feature = "all_dram")]
