@@ -15,6 +15,8 @@ use std::{
 		Mutex,
 		atomic::{AtomicBool, Ordering},
 	},
+	thread,
+	time::{Duration, Instant},
 };
 
 use kwik::thread_pool::ThreadPool;
@@ -25,11 +27,18 @@ use paper_cache::BufferDRAM;
 #[cfg(feature = "tiered")]
 use paper_cache::{CacheTierSize, TieredBuffer};
 use paper_utils::{
+	command::CommandByte,
 	sheet::{Sheet, SheetBuilder},
 	stream::Buffer,
 };
 
-use crate::{command::Command, config::Config, connection::Connection, error::ServerError};
+use crate::{
+	command::Command,
+	config::Config,
+	connection::Connection,
+	error::ServerError,
+	selfstats::{self, SLOT_GET_MISS, SelfStats},
+};
 
 /// Keys stay `Buffer` (the protocol's byte strings); values become
 /// `TieredBuffer`, which is what makes this the tiered cache rather than the
@@ -68,6 +77,10 @@ pub struct Server {
 	listener: TcpListener,
 	cache:    Arc<Cache>,
 
+	/// The server's own latency figures (see `selfstats`): what command byte 200
+	/// and `--stats-interval` report.
+	stats: Arc<SelfStats>,
+
 	pool: ThreadPool,
 
 	max_connections: usize,
@@ -81,8 +94,13 @@ impl Server {
 	pub fn new(config: &Config, cache: Cache) -> Result<Self, ServerError> {
 		let addr = format!("{}:{}", config.host(), config.port());
 
-		let Ok(listener) = TcpListener::bind(addr) else {
-			return Err(ServerError::InvalidAddress);
+		let listener = match TcpListener::bind(&addr) {
+			Ok(listener) => listener,
+
+			Err(err) => {
+				error!("could not bind {addr}: {err}");
+				return Err(ServerError::InvalidAddress);
+			},
 		};
 
 		let mut streams = Vec::with_capacity(config.max_connections());
@@ -93,6 +111,7 @@ impl Server {
 		let server = Server {
 			listener,
 			cache: Arc::new(cache),
+			stats: Arc::new(SelfStats::new()),
 
 			pool: ThreadPool::new(config.max_connections()),
 
@@ -126,6 +145,26 @@ impl Server {
 		Ok(())
 	}
 
+	/// Prints the self-stats report to stderr every `every`, so a long run
+	/// leaves a trace without anyone having to ask for it. A thread of its own
+	/// rather than a signal handler, and it holds the cache only weakly: the
+	/// cache's workers are joined when it drops, and a reporter keeping it alive
+	/// would leave them running at process exit.
+	pub fn spawn_stats_reporter(&self, every: Duration) {
+		let cache = Arc::downgrade(&self.cache);
+		let stats = self.stats.clone();
+
+		thread::spawn(move || loop {
+			thread::sleep(every);
+
+			let Some(cache) = cache.upgrade() else {
+				return;
+			};
+
+			eprint!("{}", selfstats::render(&stats, &cache));
+		});
+	}
+
 	pub fn listen(&self) -> Result<(), ServerError> {
 		for stream in self.listener.incoming() {
 			if self.shutdown.load(Ordering::Relaxed) {
@@ -151,6 +190,13 @@ impl Server {
 						return Err(ServerError::MaxConnectionsExceeded);
 					}
 
+					// Latency is the point of this server, and Nagle would batch
+					// small responses into 40ms stalls that have nothing to do
+					// with the cache.
+					if let Err(err) = stream.set_nodelay(true) {
+						warn!("Could not set TCP_NODELAY: {err}");
+					}
+
 					let address = stream
 						.peer_addr()
 						.map(|address| address.to_string())
@@ -162,6 +208,7 @@ impl Server {
 
 					let connection = Connection::new(stream, self.auth_token);
 					let cache = self.cache.clone();
+					let stats = self.stats.clone();
 					let streams = self.streams.clone();
 
 					self.pool.execute(move || {
@@ -172,7 +219,7 @@ impl Server {
 							return;
 						};
 
-						Server::handle_connection(connection, cache);
+						Server::handle_connection(connection, cache, stats);
 						info!("Disconnected: {address}");
 
 						remove_stream(streams, index);
@@ -186,7 +233,7 @@ impl Server {
 		Ok(())
 	}
 
-	fn handle_connection(mut connection: Connection, cache: Arc<Cache>) {
+	fn handle_connection(mut connection: Connection, cache: Arc<Cache>, stats: Arc<SelfStats>) {
 		loop {
 			let command = match connection.get_command() {
 				Ok(command) => command,
@@ -208,14 +255,14 @@ impl Server {
 
 				(_, Command::Auth(token)) => handle_auth(&mut connection, &token),
 
-				(true, Command::Get(key)) => handle_get(&cache, key),
-				(true, Command::Set(key, value, ttl)) => handle_set(&cache, key, value, ttl),
-				(true, Command::Del(key)) => handle_del(&cache, key),
+				(true, Command::Get(key)) => handle_get(&cache, &stats, key),
+				(true, Command::Set(key, value, ttl)) => handle_set(&cache, &stats, key, value, ttl),
+				(true, Command::Del(key)) => handle_del(&cache, &stats, key),
 
-				(true, Command::Has(key)) => handle_has(&cache, key),
-				(true, Command::Peek(key)) => handle_peek(&cache, key),
-				(true, Command::Ttl(key, ttl)) => handle_ttl(&cache, key, ttl),
-				(true, Command::Size(key)) => handle_size(&cache, key),
+				(true, Command::Has(key)) => handle_has(&cache, &stats, key),
+				(true, Command::Peek(key)) => handle_peek(&cache, &stats, key),
+				(true, Command::Ttl(key, ttl)) => handle_ttl(&cache, &stats, key, ttl),
+				(true, Command::Size(key)) => handle_size(&cache, &stats, key),
 
 				(true, Command::Wipe) => handle_wipe(&cache),
 
@@ -223,6 +270,7 @@ impl Server {
 				(true, Command::Policy(policy_str)) => handle_policy(&cache, policy_str),
 
 				(true, Command::Status) => handle_status(&cache),
+				(true, Command::SelfStats) => handle_self_stats(&cache, &stats),
 
 				_ => Err(ServerError::Unauthorized),
 			};
@@ -323,9 +371,31 @@ fn handle_auth(connection: &mut Connection, token: &Buffer) -> SheetResult {
 	Ok(sheet)
 }
 
-fn handle_get(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
-	cache
-		.get(&key)
+/// Times ONE cache call and nothing around it. The request is already parsed
+/// and the response is not yet written when this runs.
+fn timed<T>(stats: &SelfStats, slot: u8, call: impl FnOnce() -> T) -> T {
+	let started = Instant::now();
+	let out = call();
+
+	stats.record(slot, started.elapsed().as_nanos() as u64);
+
+	out
+}
+
+fn handle_get(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer) -> SheetResult {
+	// Timed inline rather than through `timed` so the outcome can pick the
+	// slot: hits and misses are different operations and must not share an
+	// average.
+	let started = Instant::now();
+	let outcome = cache.get(&key);
+	let nanos = started.elapsed().as_nanos() as u64;
+
+	stats.record(
+		if outcome.is_ok() { CommandByte::GET } else { SLOT_GET_MISS },
+		nanos,
+	);
+
+	outcome
 		.map(|object| {
 			SheetBuilder::new()
 				.write_bool(true)
@@ -335,32 +405,33 @@ fn handle_get(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 		.map_err(ServerError::CacheError)
 }
 
-fn handle_set(cache: &Arc<Cache>, key: Buffer, value: Buffer, ttl: Option<u32>) -> SheetResult {
-	cache
-		.set(key, &value, ttl)
+fn handle_set(
+	cache: &Arc<Cache>,
+	stats: &SelfStats,
+	key: Buffer,
+	value: Buffer,
+	ttl: Option<u32>,
+) -> SheetResult {
+	timed(stats, CommandByte::SET, || cache.set(key, &value, ttl))
 		.map(|_| SheetBuilder::new().write_bool(true).into_sheet())
 		.map_err(ServerError::CacheError)
 }
 
-fn handle_del(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
-	cache
-		.del(&key)
+fn handle_del(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer) -> SheetResult {
+	timed(stats, CommandByte::DEL, || cache.del(&key))
 		.map(|_| SheetBuilder::new().write_bool(true).into_sheet())
 		.map_err(ServerError::CacheError)
 }
 
-fn handle_has(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
-	let sheet = SheetBuilder::new()
-		.write_bool(true)
-		.write_bool(cache.has(&key))
-		.into_sheet();
+fn handle_has(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer) -> SheetResult {
+	let has = timed(stats, CommandByte::HAS, || cache.has(&key));
+	let sheet = SheetBuilder::new().write_bool(true).write_bool(has).into_sheet();
 
 	Ok(sheet)
 }
 
-fn handle_peek(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
-	cache
-		.peek(&key)
+fn handle_peek(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer) -> SheetResult {
+	timed(stats, CommandByte::PEEK, || cache.peek(&key))
 		.map(|object| {
 			SheetBuilder::new()
 				.write_bool(true)
@@ -370,16 +441,14 @@ fn handle_peek(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 		.map_err(ServerError::CacheError)
 }
 
-fn handle_ttl(cache: &Arc<Cache>, key: Buffer, ttl: Option<u32>) -> SheetResult {
-	cache
-		.ttl(&key, ttl)
+fn handle_ttl(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer, ttl: Option<u32>) -> SheetResult {
+	timed(stats, CommandByte::TTL, || cache.ttl(&key, ttl))
 		.map(|_| SheetBuilder::new().write_bool(true).into_sheet())
 		.map_err(ServerError::CacheError)
 }
 
-fn handle_size(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
-	cache
-		.size(&key)
+fn handle_size(cache: &Arc<Cache>, stats: &SelfStats, key: Buffer) -> SheetResult {
+	timed(stats, CommandByte::SIZE, || cache.size(&key))
 		.map(|size| {
 			SheetBuilder::new()
 				.write_bool(true)
@@ -445,6 +514,17 @@ fn handle_status(cache: &Arc<Cache>) -> SheetResult {
 		.write_str(status.policy().to_string())
 		.write_bool(false)
 		.write_u64(status.uptime())
+		.into_sheet();
+
+	Ok(sheet)
+}
+
+/// The server's own latency and tier report, as one text buffer: command byte
+/// 200, outside the protocol's range. See `selfstats`.
+fn handle_self_stats(cache: &Arc<Cache>, stats: &SelfStats) -> SheetResult {
+	let sheet = SheetBuilder::new()
+		.write_bool(true)
+		.write_buf(selfstats::render(stats, cache).as_bytes())
 		.into_sheet();
 
 	Ok(sheet)

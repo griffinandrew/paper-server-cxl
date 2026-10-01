@@ -12,6 +12,13 @@ use paper_utils::{
 	stream::{Buffer, StreamError, StreamReader},
 };
 
+/// The command byte the server answers its OWN statistics on.
+///
+/// Deliberately outside the protocol's 0..=13 range: a stock client never sends
+/// it, and the answer is a plain text buffer rather than the fixed STATUS
+/// frame, which has no room for tier fields.
+pub const COMMAND_SELF_STATS: u8 = 200;
+
 pub enum Command {
 	Ping,
 	Version,
@@ -33,6 +40,8 @@ pub enum Command {
 	Policy(String),
 
 	Status,
+
+	SelfStats,
 }
 
 impl Command {
@@ -109,6 +118,8 @@ impl Command {
 			},
 
 			CommandByte::STATUS => Ok(Command::Status),
+
+			COMMAND_SELF_STATS => Ok(Command::SelfStats),
 
 			_ => Err(StreamError::InvalidData),
 		}

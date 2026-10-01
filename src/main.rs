@@ -10,6 +10,7 @@ mod config;
 mod connection;
 mod error;
 mod logo;
+mod selfstats;
 mod server;
 
 use std::{
@@ -50,15 +51,44 @@ struct Args {
 	#[arg(short, long)]
 	/// Optional path to log4rs config file
 	log_config: Option<PathBuf>,
+
+	/// Address to listen on, overriding `host` and `port` of the config
+	#[arg(long, value_name = "ADDR:PORT")]
+	bind: Option<String>,
+
+	/// Overall cache capacity, overriding `max_size`: a byte count, or with a
+	/// suffix (2GiB) as in the config
+	#[arg(long, value_name = "BYTES")]
+	max_size: Option<String>,
+
+	/// Fast (DRAM) tier capacity, overriding `fast_tier_size`; the tiered build
+	/// only, and it must not exceed the overall capacity
+	#[arg(long, value_name = "BYTES")]
+	fast_tier_size: Option<String>,
+
+	/// Eviction policy, overriding `policy`: a hybrid design such as
+	/// lru-compact-hybrid or s3-fifo-faithful-compact-hybrid-0.1 (the all_dram
+	/// build serves the flat designs instead)
+	#[arg(long, value_name = "POLICY")]
+	policy: Option<String>,
+
+	/// Require this token via the AUTH command, overriding `auth_token`
+	#[arg(long, value_name = "TOKEN")]
+	auth: Option<String>,
+
+	/// Print the server-side cache latency report to stderr every this many
+	/// seconds. Command byte 200 returns the same report on demand.
+	#[arg(long, value_name = "SECONDS")]
+	stats_interval: Option<u64>,
 }
 
 fn main() {
 	let args = Args::parse();
 
 	dotenv().ok();
-	init_logging(args.log_config);
+	init_logging(args.log_config.as_ref());
 
-	let config = match &args.config {
+	let mut config = match &args.config {
 		Some(path) => match Config::from_file(path) {
 			Ok(config) => config,
 
@@ -67,6 +97,11 @@ fn main() {
 
 		None => Config::default(),
 	};
+
+	// The flags win over the file, which wins over default.pconf.
+	if let Err(err) = apply_flags(&mut config, &args) {
+		fatal(err);
+	}
 
 	if let Err(err) = config.validate() {
 		fatal(err);
@@ -92,6 +127,17 @@ fn main() {
 		Err(err) => fatal(err),
 	};
 
+	info!(
+		"Serving {} with max size {} B and fast tier {} B",
+		config.policy(),
+		config.max_size(),
+		config.fast_tier_size(),
+	);
+
+	if let Some(every) = config.stats_interval() {
+		server.spawn_stats_reporter(every);
+	}
+
 	init_ctrlc(server.clone());
 
 	loop {
@@ -100,6 +146,41 @@ fn main() {
 			break;
 		}
 	}
+}
+
+/// The command line's settings, over the config's. Each is the config line it
+/// stands for (`Config::set`), so a flag is parsed exactly as the file's line
+/// would be, and a bad one names its flag.
+fn apply_flags(config: &mut Config, args: &Args) -> Result<(), String> {
+	let flagged = |flag: &str, result: Result<(), error::ServerError>| {
+		result.map_err(|err| format!("{flag}: {err}"))
+	};
+
+	if let Some(bind) = &args.bind {
+		flagged("--bind", config.set_bind(bind))?;
+	}
+
+	if let Some(value) = &args.max_size {
+		flagged("--max-size", config.set("max_size", value))?;
+	}
+
+	if let Some(value) = &args.fast_tier_size {
+		flagged("--fast-tier-size", config.set("fast_tier_size", value))?;
+	}
+
+	if let Some(value) = &args.policy {
+		flagged("--policy", config.set("policy", value))?;
+	}
+
+	if let Some(value) = &args.auth {
+		flagged("--auth", config.set("auth_token", value))?;
+	}
+
+	if let Some(seconds) = args.stats_interval {
+		flagged("--stats-interval", config.set_stats_interval(seconds))?;
+	}
+
+	Ok(())
 }
 
 /// A startup failure: said once, and the exit status says so too.

@@ -12,11 +12,10 @@ max_size=2GiB
 # which has no slow tier.
 fast_tier_size=512MiB
 
-# NOTE: `policies[]` is parsed but unused. A cache's policy is fixed when it is
-# built, there is no `auto` policy and nothing switches it at run time, so only
-# `policy` below counts. The list is kept so stock config files still load, and
-# its entries are not checked against the names this cache knows.
-policies[]=lru
+# NOTE: a stock config's `policies[]` lines are accepted and ignored, with a
+# warning at start-up. A cache's policy is fixed when it is built, there is no
+# `auto` policy and nothing switches it at run time, so only `policy` below
+# counts, and the names listed are not checked against the ones this cache knows.
 
 # The eviction policy, fixed for the process lifetime. The cache hosts every
 # design in one build and the policy picks one at start-up; a build that cannot

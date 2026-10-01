@@ -49,6 +49,54 @@ this crate declares none.
 
 `default.pconf` is the default configuration and documents every key. Keys:
 `host`, `port`, `max_size`, `fast_tier_size`, `policy`, `max_connections`,
-`auth_token`; `policies[]` is accepted and ignored. `fast_tier_size` is the
-fork's key: the fast (DRAM) tier's byte budget, and the rest of `max_size` is
-the slow tier.
+`auth_token`; `policies[]` is accepted and ignored, with a warning. A file given
+with `--config` is not layered over the defaults (as upstream): what it leaves
+out is zero or empty, so it must set `host`, `port`, `max_size`,
+`fast_tier_size` and `max_connections`, and `policy` unless that is
+`lru-compact-hybrid`. `fast_tier_size` is the fork's key: the fast (DRAM) tier's
+byte budget, and the rest of `max_size` is the slow tier.
+
+### Command line
+
+Every flag is the config line it stands for, parsed as the file's line is, and
+wins over the file, which wins over `default.pconf`.
+
+| Flag | Overrides | Notes |
+|---|---|---|
+| `--bind <ADDR:PORT>` | `host`, `port` | `0.0.0.0:3145` accepts connections from other machines |
+| `--max-size <BYTES>` | `max_size` | a byte count, or with a suffix (`2GiB`) |
+| `--fast-tier-size <BYTES>` | `fast_tier_size` | tiered build only; at most `max_size` |
+| `--policy <POLICY>` | `policy` | e.g. `lru-compact-hybrid`, `s3-fifo-faithful-compact-hybrid-0.1` |
+| `--auth <TOKEN>` | `auth_token` | clients must send it with AUTH before any other command |
+| `--stats-interval <S>` | | print the self-stats report to stderr every S seconds |
+| `--config <FILE>`, `--log-config <FILE>` | | as upstream |
+
+`--bind`, `--max-size`, `--fast-tier-size` and `--policy` are the flags the
+benchmark's `run_mem.py` launches a server with, so pointing it at this binary
+needs a different `--server` path and nothing else on the server side.
+
+## Self-reported latency
+
+A client can only time a round trip. The server also times the cache call
+itself, per command, and reports it with the cache's own figures: command byte
+**200** (outside the protocol's 0..=13) answers `[!][len][text]`, and
+`--stats-interval` prints the same report to stderr. The report is text, and
+only ever grows by appending a section:
+
+| Section | Content |
+|---|---|
+| `SERVER-SIDE CACHE LATENCY` | count, mean and p50/p90/p99/p99.9 per command, socket excluded. Percentiles are bucket lower bounds (about 25% wide); the mean is exact. GET hits and misses are separate rows. |
+| `CACHE` | objects, used and max size, miss ratio, counters, RSS |
+| `TIERS` | the fast/slow split (objects and bytes per tier), the fast tier's metadata reservation, promotions, demotions, evictions. The flat build says it has none. |
+| `MEASURED vs MODELLED` | the allocator's per-pool totals beside the model; only with `measured_accounting` |
+| `PHYSICAL FAST TIER` | the bytes physically in the fast tier's value pool and its peak, the effective budget, hits by tier, the cache's measured DRAM metadata |
+| `MIGRATIONS AND CAPACITY PASSES` | the migration queue's depth, backlog and dispositions (applied, gone, declined, superseded), the correctives the reconcile queued and applied, and the capacity passes the eviction watermark armed: this cache's own counts since it was built |
+
+`run_mem.py` reads the report with line-anchored regular expressions
+(`^fast\s+\d+ objects`, `^slow\s+`, `^dram\s+`, `^promotions`, ...), so no line
+of a later section starts with one of those words.
+
+PING answers `[!][len]pong`, as upstream's server does and as the stock client's
+`ping()` reads it. A client that reads only the boolean (the benchmark's
+`bench-client` does) leaves the buffer in the stream and loses frame sync at its
+next command.
