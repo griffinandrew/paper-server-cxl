@@ -19,7 +19,11 @@ use std::{
 
 use kwik::thread_pool::ThreadPool;
 use log::{error, info, warn};
-use paper_cache::{CacheError, PaperCache, PaperPolicy, TieredBuffer};
+use paper_cache::{CacheError, PaperCache, PaperPolicy};
+#[cfg(feature = "all_dram")]
+use paper_cache::BufferDRAM;
+#[cfg(feature = "tiered")]
+use paper_cache::{CacheTierSize, TieredBuffer};
 use paper_utils::{
 	sheet::{Sheet, SheetBuilder},
 	stream::Buffer,
@@ -31,8 +35,34 @@ use crate::{command::Command, config::Config, connection::Connection, error::Ser
 /// `TieredBuffer`, which is what makes this the tiered cache rather than the
 /// flat one -- each value lives in either the fast (DRAM) or slow (PMEM/CXL)
 /// tier and migrates between them under the policy's control.
+#[cfg(feature = "tiered")]
 pub type Cache = PaperCache<Buffer, TieredBuffer>;
+
+/// The flat all-DRAM baseline: one tier, nothing on the slow node.
+#[cfg(feature = "all_dram")]
+pub type Cache = PaperCache<Buffer, BufferDRAM>;
+
 type SheetResult = Result<Sheet, ServerError>;
+
+/// The tiered constructor: overall budget, the fast tier's share of it, and
+/// the design. It takes no policy LIST -- `auto` policy switching is gone from
+/// the cache, and a tiered stack's fast/slow split is not transferable between
+/// designs, so `policies[]` from the config is unused here.
+#[cfg(feature = "tiered")]
+pub fn new_cache(config: &Config) -> Result<Cache, CacheError> {
+	Cache::new(
+		config.max_size(),
+		CacheTierSize::Bytes(config.fast_tier_size()),
+		config.policy(),
+	)
+}
+
+/// The flat constructor takes the set of CONFIGURED policies rather than a tier
+/// size -- there is no tier to size. Only the running policy is configured.
+#[cfg(feature = "all_dram")]
+pub fn new_cache(config: &Config) -> Result<Cache, CacheError> {
+	Cache::new(config.max_size(), &[config.policy()], config.policy())
+}
 
 pub struct Server {
 	listener: TcpListener,
@@ -331,12 +361,10 @@ fn handle_has(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 fn handle_peek(cache: &Arc<Cache>, key: Buffer) -> SheetResult {
 	cache
 		.peek(&key)
-		// `Arc<TieredBuffer>` rather than the flat cache's buffer: deref
-		// through both to reach the bytes, whichever tier they are in.
 		.map(|object| {
 			SheetBuilder::new()
 				.write_bool(true)
-				.write_buf(object.as_ref().as_ref())
+				.write_buf(&object)
 				.into_sheet()
 		})
 		.map_err(ServerError::CacheError)
@@ -377,12 +405,11 @@ fn handle_resize(cache: &Arc<Cache>, size: u64) -> SheetResult {
 
 /// Refused rather than silently ignored.
 ///
-/// The tiered cache has no runtime policy setter: `PaperCache::policy` lives
-/// on the `impl<K, V, S> ... where V: ValueBuffer` block, and `TieredBuffer`
-/// does not implement `ValueBuffer`, so it is not callable on this type at
-/// all. Switching design means restarting with a different `policy=` -- which
-/// is also the honest thing for a tiered cache, since the fast/slow split a
-/// running stack has built up is not transferable to another design.
+/// No cache has a runtime policy setter any more: a cache's policy is fixed
+/// when it is built, and `PaperCache::policy` is gone. Switching design means
+/// restarting with a different `policy=` -- which is also the honest thing for
+/// a tiered cache, since the fast/slow split a running stack has built up is
+/// not transferable to another design.
 fn handle_policy(_cache: &Arc<Cache>, policy_str: String) -> SheetResult {
 	let Ok(_policy) = PaperPolicy::from_str(&policy_str) else {
 		return Err(ServerError::CacheError(CacheError::InvalidPolicy));
@@ -412,9 +439,11 @@ fn handle_status(cache: &Arc<Cache>) -> SheetResult {
 		sheet_builder = sheet_builder.write_str(policy.to_string());
 	}
 
+	// The auto flag is always false: a cache's policy is fixed when it is
+	// built, and `auto` no longer exists.
 	let sheet = sheet_builder
 		.write_str(status.policy().to_string())
-		.write_bool(status.is_auto_policy())
+		.write_bool(false)
 		.write_u64(status.uptime())
 		.into_sheet();
 

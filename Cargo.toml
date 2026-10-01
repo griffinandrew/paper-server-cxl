@@ -5,7 +5,6 @@ edition = "2024"
 license = "AGPL-3.0"
 description = "An in-memory cache with dynamic eviction policies."
 repository = "https://github.com/PaperCache/paper-server.git"
-readme = "README.md"
 homepage = "https://papercache.io"
 keywords = ["caching", "PaperCache"]
 categories = ["caching"]
@@ -15,32 +14,21 @@ clap = { version = "4.6.0", features = ["derive"] }
 paper-utils = "1.3.0"
 # The tiered fork, not the published crate. Upstream paper-cache has no
 # fast/slow tier, so serving it here would measure a different cache than the
-# one this project is about. Path rather than git so a working-tree change is
-# picked up without a push, matching how paper-benchmark-cxl depends on it.
-paper-cache = { path = "/home/griff/work/paper-cache-cxl", default-features = false, features = [
-	"numa_jemalloc",
-	"key_value_pmem",
-	"hybrid_cache_common",
-	"lru_hybrid_cache",
-	"lfu_hybrid_cache",
-	"fifo_hybrid_cache",
-	"lru_lfu_hybrid_cache",
-	"lru_sized_hybrid_cache",
-	"two_q_hybrid_cache",
-	"two_q_ghost_hybrid_cache",
-	"two_q_fast_admission_hybrid_cache",
-	"two_q_fast_admission_reprieve_hybrid_cache",
-	"two_q_full_fast_admission_hybrid_cache",
-	"s3_fifo_hybrid_cache",
-	"s3_fifo_ghost_hybrid_cache",
-	"s3_fifo_ghost_lazy_demotion_hybrid_cache",
-	"s3_fifo_ghost_lazy_demotion_fast_admission_hybrid_cache",
-	"s3_fifo_ghost_lazy_demotion_fast_admission_midpoint_hybrid_cache",
-	"s3_fifo_lazy_demotion_reprieve_hybrid_cache",
-	"s3_fifo_lazy_demotion_fast_admission_reprieve_hybrid_cache",
-	"s3_fifo_lazy_demotion_fast_admission_midpoint_reprieve_hybrid_cache",
-	"s3_fifo_lazy_demotion_fast_admission_split_slow_reprieve_hybrid_cache",
-] }
+# one this project is about.
+#
+# Pinned by revision: a branch name would move under a benchmark, and the
+# revision is what a result is quoted against. `default-features = false`
+# because the cache's `default` is empty anyway; what it is built with is
+# chosen by this crate's own features below, which forward to it.
+# `hybrid_cache_common` is on in every build: it exposes the tiered types, the
+# admission gate and the SET permit, and the flat all-DRAM cache registers with
+# the process-wide fast-byte counter through it too.
+#
+# Nothing here names a design. Every hybrid build compiles all 23 designs and
+# `PaperCache::new` picks one at run time from the `PaperPolicy` it is given
+# (`policy=` in the config, `--policy` on the command line); the cache's
+# `*_hybrid_cache` features gate its own tests and nothing else.
+paper-cache = { git = "https://github.com/griffinandrew/paper-cache-cxl", rev = "450a03f4f48c604183d22f9245e676b5babb2a9a", default-features = false, features = ["hybrid_cache_common"] }
 kwik = "1.18.7"
 byteorder = "1.5.0"
 thiserror = "2.0.16"
@@ -52,3 +40,34 @@ serde_yaml = "0.9.34"
 ctrlc = "3.5.2"
 libc = "0.2.183"
 
+[features]
+# Which cache is served. Exactly one: `tiered` is the default, `all_dram` needs
+# `--no-default-features`. main.rs refuses both at once; with neither the cache
+# itself does not compile (`hybrid_cache_common` alone has no object store).
+default = ["tiered"]
+
+# The tiered cache, `PaperCache<Buffer, TieredBuffer>`. `key_value_pmem` is not
+# optional in spirit: the cache puts its TTL expiry index in the slow tier only
+# when it and `hybrid_cache_common` are both on (src/worker/ttl/expiries.rs,
+# cache rev above), and every benchmark build before this one had it on,
+# because every design feature of the cache enabled it.
+tiered = ["paper-cache/key_value_pmem"]
+
+# The flat all-DRAM baseline, `PaperCache<Buffer, BufferDRAM>`: one tier, no
+# gate, no slow node. Without `key_value_pmem`, so that nothing of the flat
+# cache can land on the slow node.
+all_dram = ["paper-cache/all_dram"]
+
+# The object store. Off: DashMap (a map and a separate eviction stack). On: the
+# merged store, where the map is the eviction order (lru, fifo, clock and lfu
+# only; any other policy is refused at startup).
+merged_object_store = ["paper-cache/merged_object_store"]
+
+# The value layout. Off: a DRAM header and the bytes in a second allocation. On:
+# a 16-byte DRAM header in front of one tiered item holding the length, the
+# expiry, the key and the bytes, so the key tiers with the value.
+thin_header = ["paper-cache/thin_header"]
+
+# Per-pool allocator counters, reported beside the cache's own accounting in the
+# self-stats report. The benchmark's servers were built with it.
+measured_accounting = ["paper-cache/measured_accounting"]

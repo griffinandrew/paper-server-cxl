@@ -1,0 +1,11 @@
+# The paper-cache dependency needs nightly (allocator_api, btreemap_alloc,
+# read_buf, core_io_borrowed_buf). This is the nightly the benchmark box
+# (mlsys-03) builds the cache with: its `nightly` toolchain is the 2026-09-14
+# release, rustc 1.100.0-nightly (4b6d04e70 2026-09-13).
+#
+# On that box the toolchain is installed under the name `nightly`, which rustup
+# does not treat as this dated name: use `cargo +nightly ...` there, or a bare
+# `cargo` would try to install `nightly-2026-09-14` beside it.
+[toolchain]
+channel = "nightly-2026-09-14"
+profile = "minimal"

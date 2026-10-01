@@ -47,6 +47,9 @@ pub enum ServerError {
 	#[error("invalid policy <{0}> in config")]
 	InvalidConfigPolicy(String),
 
+	#[error("policy <{0}> cannot be served by this build: {1}")]
+	UnservedPolicy(String, &'static str),
+
 	#[error("unauthorized")]
 	Unauthorized,
 }
@@ -81,7 +84,8 @@ fn get_error_code(error: &ServerError) -> u8 {
 		| ServerError::InvalidConfig
 		| ServerError::InvalidConfigLine(_)
 		| ServerError::InvalidConfigParam(_)
-		| ServerError::InvalidConfigPolicy(_) => 1,
+		| ServerError::InvalidConfigPolicy(_)
+		| ServerError::UnservedPolicy(..) => 1,
 
 		ServerError::MaxConnectionsExceeded => 2,
 		ServerError::Unauthorized => 3,

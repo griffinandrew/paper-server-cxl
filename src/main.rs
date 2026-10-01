@@ -14,18 +14,25 @@ mod server;
 
 use std::{
 	path::{Path, PathBuf},
+	process,
 	sync::Arc,
 };
 
 use clap::Parser;
-use paper_cache::CacheTierSize;
 use dotenv::dotenv;
-use log::{error, info};
+use log::{error, info, warn};
 
 use crate::{
 	config::Config,
-	server::{Cache, Server},
+	server::{Server, new_cache},
 };
+
+#[cfg(all(feature = "tiered", feature = "all_dram"))]
+compile_error!(
+	"the `tiered` and `all_dram` features serve different caches; build one \
+	 of them (`--no-default-features --features all_dram` for the flat \
+	 baseline)"
+);
 
 // No `#[global_allocator]` here on purpose. `paper-cache` installs a
 // NUMA-bound jemalloc of its own, and that allocator is what decides which
@@ -55,25 +62,24 @@ fn main() {
 		Some(path) => match Config::from_file(path) {
 			Ok(config) => config,
 
-			Err(err) => {
-				error!("{err}");
-				return;
-			},
+			Err(err) => fatal(err),
 		},
 
 		None => Config::default(),
 	};
 
-	// The tiered constructor: overall budget, the fast tier's share of it, and
-	// the design. It takes no policy LIST -- `auto` policy switching belongs to
-	// the flat cache, and a tiered stack's fast/slow split is not transferable
-	// between designs, so `policies` from the config is unused here.
-	let cache = Cache::new(
-		config.max_size(),
-		CacheTierSize::Bytes(config.fast_tier_size()),
-		config.policy(),
-	)
-	.expect("Could not configure cache");
+	if let Err(err) = config.validate() {
+		fatal(err);
+	}
+
+	if !config.policies().is_empty() {
+		warn!("policies[] is ignored: this server runs the one policy it is configured with");
+	}
+
+	let cache = match new_cache(&config) {
+		Ok(cache) => cache,
+		Err(err) => fatal(format!("could not construct the cache: {err}")),
+	};
 
 	let cache_version = cache.version();
 
@@ -83,10 +89,7 @@ fn main() {
 			Arc::new(server)
 		},
 
-		Err(err) => {
-			error!("{err}");
-			return;
-		},
+		Err(err) => fatal(err),
 	};
 
 	init_ctrlc(server.clone());
@@ -97,6 +100,12 @@ fn main() {
 			break;
 		}
 	}
+}
+
+/// A startup failure: said once, and the exit status says so too.
+fn fatal(message: impl std::fmt::Display) -> ! {
+	error!("{message}");
+	process::exit(1);
 }
 
 fn init_logging<P>(maybe_path: Option<P>)

@@ -26,7 +26,7 @@ pub struct Config {
 
 	max_size: u64,
 	fast_tier_size: u64,
-	policies: Vec<PaperPolicy>,
+	policies: Vec<String>,
 	policy:   PaperPolicy,
 
 	max_connections: usize,
@@ -39,7 +39,7 @@ enum ConfigValue {
 
 	MaxSize(u64),
 	FastTierSize(u64),
-	PoliciesItem(PaperPolicy),
+	PoliciesItem(String),
 	Policy(PaperPolicy),
 
 	MaxConnections(usize),
@@ -70,6 +70,21 @@ impl Config {
 		Ok(config)
 	}
 
+	/// Whether this build can serve the configured policy. Checked once the
+	/// whole configuration is in, because a build serves one kind of cache: a
+	/// tiered build only the hybrid designs, an `all_dram` build only the flat
+	/// ones, and a stock config naming `lru` or `auto` is neither.
+	pub fn validate(&self) -> Result<(), ServerError> {
+		match serves(self.policy) {
+			Ok(()) => Ok(()),
+
+			Err(reason) => Err(ServerError::UnservedPolicy(
+				self.policy.to_string(),
+				reason,
+			)),
+		}
+	}
+
 	pub fn host(&self) -> &str {
 		&self.host
 	}
@@ -83,12 +98,19 @@ impl Config {
 	}
 
 	/// The fast (DRAM) tier's byte budget. The remainder of `max_size` is
-	/// served from the slow tier.
+	/// served from the slow tier. A flat cache has no tier to size, so the
+	/// `all_dram` build never reads it (the key still parses, so one config
+	/// file serves both builds).
+	#[cfg_attr(feature = "all_dram", allow(dead_code))]
 	pub fn fast_tier_size(&self) -> u64 {
 		self.fast_tier_size
 	}
 
-	pub fn policies(&self) -> &[PaperPolicy] {
+	/// The `policies[]` lines of the file, which nothing reads: a cache's policy
+	/// is fixed when it is built, and a tiered one has no `auto` to choose
+	/// between several. Kept so a stock config file still loads, and so the
+	/// server can say it ignored them.
+	pub fn policies(&self) -> &[String] {
 		&self.policies
 	}
 
@@ -166,8 +188,49 @@ impl Default for Config {
 				.expect("An error occured when parsing default config");
 		}
 
+		// default.pconf names the tiered build's design. The flat build has no
+		// hybrid design to default to, so it takes the flat counterpart.
+		#[cfg(feature = "all_dram")]
+		{
+			config.policy = PaperPolicy::LruCompact;
+		}
+
 		config
 	}
+}
+
+/// Why this build cannot serve `policy`, if it cannot.
+#[cfg(feature = "tiered")]
+fn serves(policy: PaperPolicy) -> Result<(), &'static str> {
+	if !policy.is_hybrid() {
+		return Err(
+			"not a hybrid design; this build serves the tiered cache, and a \
+			 flat design needs the all_dram build",
+		);
+	}
+
+	// `PaperCache::new` answers InvalidPolicy for it: the size-split design
+	// takes three sizing scalars and has a constructor of its own.
+	if matches!(policy, PaperPolicy::LruSizedCompactHybrid) {
+		return Err(
+			"the size-split design has its own constructor, which this \
+			 server does not use",
+		);
+	}
+
+	Ok(())
+}
+
+#[cfg(feature = "all_dram")]
+fn serves(policy: PaperPolicy) -> Result<(), &'static str> {
+	if policy.is_hybrid() {
+		return Err(
+			"a hybrid design; this all_dram build has no slow tier to place \
+			 anything in",
+		);
+	}
+
+	Ok(())
 }
 
 fn init_uninitialized_config() -> Config {
@@ -178,7 +241,7 @@ fn init_uninitialized_config() -> Config {
 		max_size: 0,
 		fast_tier_size: 0,
 		policies: Vec::new(),
-		policy:   PaperPolicy::Lfu,
+		policy:   PaperPolicy::LruCompactHybrid,
 
 		max_connections: 0,
 		auth_token:      None,
@@ -223,11 +286,11 @@ fn parse_max_size(value: &str) -> Result<ConfigValue, ServerError> {
 	}
 }
 
+/// Not validated: the names a stock config lists here (`lru`, `arc`,
+/// `s3-fifo-0.1`, ...) are not all names this cache still knows, and nothing
+/// reads them.
 fn parse_policies_item(value: &str) -> Result<ConfigValue, ServerError> {
-	match PaperPolicy::from_str(value) {
-		Ok(policy) if !policy.is_auto() => Ok(ConfigValue::PoliciesItem(policy)),
-		_ => Err(ServerError::InvalidConfigPolicy(value.into())),
-	}
+	Ok(ConfigValue::PoliciesItem(value.to_owned()))
 }
 
 fn parse_policy(value: &str) -> Result<ConfigValue, ServerError> {

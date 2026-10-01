@@ -8,48 +8,59 @@ port=3145
 max_size=2GiB
 
 # Byte budget of the FAST (DRAM) tier. Values beyond it are demoted to the
-# slow (PMEM/CXL) tier. Must not exceed max_size.
+# slow (PMEM/CXL) tier. Must not exceed max_size. Ignored by the all_dram build,
+# which has no slow tier.
 fast_tier_size=512MiB
 
-# The configured eviction policies of the cache
-# Possible values:
-# - lfu
-# - fifo
-# - clock
-# - sieve
-# - lru
-# - mru
-# - 2q-<K_in>-<K_out>
-# - arc
-# - s3-fifo-<ratio>
-# NOTE: `policies[]` is parsed but unused by this build. The tiered cache has
-# no runtime policy switching and no `auto` policy, so the design is fixed at
-# startup by `policy` below. The list is kept so stock config files still load.
+# NOTE: `policies[]` is parsed but unused. A cache's policy is fixed when it is
+# built, there is no `auto` policy and nothing switches it at run time, so only
+# `policy` below counts. The list is kept so stock config files still load, and
+# its entries are not checked against the names this cache knows.
 policies[]=lru
 
-# The eviction policy, fixed for the process lifetime. This build serves the
-# TIERED designs; a flat policy name such as `lru` or `auto` will be rejected.
-# Possible values:
-# - lru-hybrid
-# - lfu-hybrid
-# - fifo-hybrid
-# - lru-lfu-hybrid-<promote_k>
-# - lru-sized-hybrid
-# - 2q-hybrid-<k_in>
-# - 2q-ghost-hybrid-<k_in>
-# - 2q-fast-admission-hybrid-<k_in>
-# - 2q-fast-admission-reprieve-hybrid-<k_in>
-# - 2q-full-fast-admission-hybrid-<k_in>-<k_out>
-# - s3-fifo-hybrid-<ratio>
-# - s3-fifo-ghost-hybrid-<ratio>
-# - s3-fifo-ghost-lazy-demotion-hybrid-<ratio>
-# - s3-fifo-ghost-lazy-demotion-fast-admission-hybrid-<ratio>
-# - s3-fifo-ghost-lazy-demotion-fast-admission-midpoint-hybrid-<ratio>
-# - s3-fifo-lazy-demotion-reprieve-hybrid-<ratio>
-# - s3-fifo-lazy-demotion-fast-admission-reprieve-hybrid-<ratio>
-# - s3-fifo-lazy-demotion-fast-admission-midpoint-reprieve-hybrid-<ratio>
-# - s3-fifo-lazy-demotion-fast-admission-split-slow-reprieve-hybrid-<ratio>
-policy=lru-hybrid
+# The eviction policy, fixed for the process lifetime. The cache hosts every
+# design in one build and the policy picks one at start-up; a build that cannot
+# serve the one named refuses to start.
+#
+# The default (tiered) build serves the hybrid designs:
+# - lru-compact-hybrid
+# - lfu-compact-hybrid
+# - fifo-compact-hybrid
+# - clock-compact-hybrid
+# - lru-lfu-compact-hybrid-<promote_k>
+# - 2q-compact-hybrid-<k_in>
+# - 2q-ghost-compact-hybrid-<k_in>
+# - 2q-fast-admission-reprieve-compact-hybrid-<k_in>
+# - 2q-full-fast-admission-compact-hybrid-<k_in>-<k_out>
+# - s3-fifo-compact-hybrid-<ratio>
+# - s3-fifo-ghost-compact-hybrid-<ratio>
+# - s3-fifo-ghost-lazy-demotion-compact-hybrid-<ratio>
+# - s3-fifo-ghost-lazy-demotion-fast-admission-compact-hybrid-<ratio>
+# - s3-fifo-ghost-lazy-demotion-fast-admission-midpoint-compact-hybrid-<ratio>
+# - s3-fifo-lazy-demotion-reprieve-compact-hybrid-<ratio>
+# - s3-fifo-lazy-demotion-fast-admission-reprieve-compact-hybrid-<ratio>
+# - s3-fifo-lazy-demotion-fast-admission-midpoint-reprieve-compact-hybrid-<ratio>
+# - s3-fifo-lazy-demotion-fast-admission-split-slow-reprieve-compact-hybrid-<ratio>
+# - s3-fifo-faithful-compact-hybrid-<ratio>
+# - s3-fifo-faithful-fast-admission-compact-hybrid-<ratio>
+# - s3-fifo-faithful-reprieve-compact-hybrid-<ratio>
+# - s3-fifo-faithful-fast-admission-reprieve-compact-hybrid-<ratio>
+# (the 23rd, lru-sized-compact-hybrid, has a constructor of its own that this
+# server does not use). A merged_object_store build serves only the lru, lfu,
+# fifo and clock ones.
+#
+# The all_dram build serves the flat designs instead, and defaults to
+# lru-compact:
+# - lru-compact
+# - lfu-compact
+# - fifo-compact
+# - clock-compact
+# - sieve-compact
+# - mru-compact
+# - 2q-compact-<k_in>-<k_out>
+# - arc
+# - s3-fifo-compact-<ratio>
+policy=lru-compact-hybrid
 
 # Maximum number of concurrent connections
 max_connections=50
