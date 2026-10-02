@@ -28,7 +28,7 @@ paper-utils = "1.3.0"
 # `PaperCache::new` picks one at run time from the `PaperPolicy` it is given
 # (`policy=` in the config, `--policy` on the command line); the cache's
 # `*_hybrid_cache` features gate its own tests and nothing else.
-paper-cache = { git = "https://github.com/griffinandrew/paper-cache-cxl", rev = "450a03f4f48c604183d22f9245e676b5babb2a9a", default-features = false, features = ["hybrid_cache_common"] }
+paper-cache = { git = "https://github.com/griffinandrew/paper-cache-cxl", rev = "dfd46b3824f302f272aadbe7f0587a0e0eb2d209", default-features = false, features = ["hybrid_cache_common"] }
 kwik = "1.18.7"
 byteorder = "1.5.0"
 thiserror = "2.0.16"
