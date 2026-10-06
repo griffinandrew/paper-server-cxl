@@ -910,7 +910,7 @@ dependencies = [
 [[package]]
 name = "paper-cache"
 version = "1.11.12"
-source = "git+https://github.com/griffinandrew/paper-cache-cxl?rev=dfd46b3824f302f272aadbe7f0587a0e0eb2d209#dfd46b3824f302f272aadbe7f0587a0e0eb2d209"
+source = "git+https://github.com/griffinandrew/paper-cache-cxl?rev=6baac10782f755b713226c406b8a316a28933908#6baac10782f755b713226c406b8a316a28933908"
 dependencies = [
  "allocator-api2",
  "crossbeam-channel",
